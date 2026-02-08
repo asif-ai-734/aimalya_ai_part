@@ -1,68 +1,53 @@
-#app.services.ai_insights_service.py
-
+#app.services.monthly_report_ai_service.py
 import asyncio
+from google import genai
 from app.core.config import get_settings
 from app.db.cache import make_cache_key, get_cached_response, set_cached_response
-from google import genai
 import json
 import re
 
 settings = get_settings()
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
-PROMPT_VERSION = "ai_insights_v1"
+PROMPT_VERSION = "monthly_report_v1"
 
 
-def extract_json(text: str):
+def _extract_json(text: str):
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         raise ValueError("No JSON in Gemini response")
     return json.loads(match.group())
 
 
-async def generate_ai_insights(summary: dict) -> dict:
+async def generate_monthly_ai_summary(report_input: dict):
     cache_key = make_cache_key(
-        "ai_insights",
+        "monthly_report",
         settings.GEMINI_MODEL,
         PROMPT_VERSION,
-        summary,
+        report_input,
     )
     cached = await get_cached_response(cache_key)
     if cached:
         return cached
 
     prompt = f"""
-You are a senior business consultant.
-
-Analyze the following business summary and provide insights and recommendations.
-
-Rules:
-- Be concise, executive-friendly
-- Focus on business impact
-- Recommendations must be actionable
+You are a senior business analyst preparing a monthly business report.
 
 Return STRICT JSON ONLY:
 
 {{
-  "business_health_score": number,
-  "quick_insights": {{
-    "what_customers_love": "string",
-    "what_customers_dislike": "string",
-    "emerging_opportunities": "string"
-  }},
-  "actionable_recommendations": [
+  "executive_summary": "string",
+  "recommendations": [
     {{
       "title": "string",
-      "priority": "High|Medium|Low",
-      "evidence": "string",
-      "business_impact": "string",
-      "expected_improvement": "string",
-      "actions": ["string"]
+      "description": "string",
+      "estimated_impact": "string"
     }}
-  ]
+  ],
+  "action_plan": ["string"]
 }}
 
-Business summary:
-{json.dumps(summary, indent=2)}
+Monthly data:
+{json.dumps(report_input, indent=2)}
 """
 
     response = await asyncio.to_thread(
@@ -71,11 +56,11 @@ Business summary:
         contents=prompt,
     )
 
-    result = extract_json(response.text)
+    result = _extract_json(response.text)
     await set_cached_response(
         cache_key,
         result,
-        "ai_insights",
+        "monthly_report",
         settings.GEMINI_MODEL,
         PROMPT_VERSION,
     )

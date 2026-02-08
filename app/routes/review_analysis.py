@@ -7,7 +7,7 @@ router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
 
 @router.get("/analysis")
-def reviews_analysis():
-    place_data = place_loader.load_place_data()
+async def reviews_analysis():
+    place_data = await place_loader.load_place_data()
     reviews = place_data.get("reviews", [])
-    return build_reviews_analysis_page(reviews)
+    return await build_reviews_analysis_page(reviews)

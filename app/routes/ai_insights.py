@@ -13,11 +13,11 @@ router = APIRouter(prefix="/insights", tags=["AI Insights"])
 
 
 @router.get("/recommendations")
-def ai_insights():
-    place_data = place_loader.load_place_data()
+async def ai_insights():
+    place_data = await place_loader.load_place_data()
     reviews = place_data.get("reviews", [])
 
-    analysis = dashboard_analysis.analyze_reviews(reviews)
+    analysis = await dashboard_analysis.analyze_reviews(reviews)
 
     overview = overview_service.build_overview(place_data, analysis)
 
@@ -42,7 +42,7 @@ def ai_insights():
         "declining_areas": declining
     }
 
-    ai_insights = ai_insights_service.generate_ai_insights(insights_input)
+    ai_insights = await ai_insights_service.generate_ai_insights(insights_input)
 
     return {
         **ai_insights,

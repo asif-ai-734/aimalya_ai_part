@@ -4,7 +4,7 @@ from datetime import datetime
 from app.services.gemini_client import analyze_review_with_gemini
 
 
-def build_reviews_analysis_page(reviews: list):
+async def build_reviews_analysis_page(reviews: list):
     ratings = []
     sentiment_counter = Counter()
     emotion_counter = Counter()
@@ -14,7 +14,7 @@ def build_reviews_analysis_page(reviews: list):
     for r in reviews:
         ratings.append(r["rating"])
 
-        ai = analyze_review_with_gemini(r["text"])
+        ai = await analyze_review_with_gemini(r["text"])
 
         sentiment_counter[ai["sentiment"]] += 1
 
