@@ -4,14 +4,14 @@ from collections import Counter
 from app.services.gemini_client import analyze_review_with_gemini
 
 
-def analyze_reviews(reviews: list):
+async def analyze_reviews(reviews: list):
     sentiment_count = {"Positive": 0, "Neutral": 0, "Negative": 0}
     strengths = Counter()
     issues = Counter()
     analyzed_reviews = []
 
     for r in reviews:
-        result = analyze_review_with_gemini(r["text"])
+        result = await analyze_review_with_gemini(r["text"])
 
         sentiment = result["sentiment"]
         strengths_phrases = result.get("strengths", [])
@@ -38,3 +38,8 @@ def analyze_reviews(reviews: list):
         "key_issues": issues.most_common(5),
         "reviews_analysis": analyzed_reviews
     }
+
+
+def build_sentiment_summary(reviews_analysis: list):
+    from collections import Counter
+    return dict(Counter(r["sentiment"] for r in reviews_analysis))

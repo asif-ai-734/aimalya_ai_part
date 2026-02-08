@@ -1,7 +1,9 @@
 
 #app.services.gemini_client.py
+import asyncio
 from google import genai
 from app.core.config import get_settings
+from app.db.cache import make_cache_key, get_cached_response, set_cached_response
 import json
 import re
 
@@ -10,6 +12,7 @@ import re
 # -------------------------------------------------
 settings = get_settings()
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
+PROMPT_VERSION = "review_v2"
 
 CRITERIA = ["Service", "Quality", "Atmosphere", "Value", "Cleanliness"]
 
@@ -74,7 +77,17 @@ def extract_criteria_scores(sentiment: str, keywords: list[str]) -> dict:
 # -------------------------------------------------
 # Main Gemini Review Analysis
 # -------------------------------------------------
-def analyze_review_with_gemini(review_text: str) -> dict:
+async def analyze_review_with_gemini(review_text: str) -> dict:
+    cache_key = make_cache_key(
+        "review_analysis",
+        settings.GEMINI_MODEL,
+        PROMPT_VERSION,
+        {"review_text": review_text},
+    )
+    cached = await get_cached_response(cache_key)
+    if cached:
+        return cached
+
     prompt = f"""
 You are an AI customer experience analyst.
 
@@ -104,7 +117,8 @@ Review:
 \"\"\"{review_text}\"\"\"
 """
 
-    response = client.models.generate_content(
+    response = await asyncio.to_thread(
+        client.models.generate_content,
         model=settings.GEMINI_MODEL,
         contents=prompt,
     )
@@ -127,7 +141,7 @@ Review:
     ]
     criteria_scores = extract_criteria_scores(sentiment, criteria_keywords)
 
-    return {
+    result = {
         "sentiment": sentiment,
         "emotions": emotions,
         "strengths": strengths,
@@ -135,3 +149,11 @@ Review:
         "keywords": keywords,
         "criteria_scores": criteria_scores
     }
+    await set_cached_response(
+        cache_key,
+        result,
+        "review_analysis",
+        settings.GEMINI_MODEL,
+        PROMPT_VERSION,
+    )
+    return result
