@@ -1,0 +1,137 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        288,
+        -320
+      ],
+      "id": "d081680b-f113-4959-8568-fbf6782f63ea",
+      "name": "When chat message received",
+      "webhookId": "intake-chat-webhook"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a friendly tutoring coordinator for ClassMatch Tutoring.\n\nYour job is to collect 13 pieces of information from parents:\n\n1. Parent's name\n2. Parent's email  \n3. Parent's phone number\n4. Child's name\n5. Child's age (number)\n6. Child's year (e.g., Year 5)\n7. Subject needed (e.g., 11+ English)\n8. Preparing for exam? (yes/no)\n9. Exam date (if applicable)\n10. Child's availability (time slots)\n11. Learning preference (small group or 1:1)\n12. Current challenges\n13. Learning goals\n\nCONVERSATION RULES:\n- Ask ONE question at a time\n- Be warm and friendly\n- Track what you've collected\n- For availability, note multiple time slots if provided\n- Once you have ALL 13 items, call the complete_intake\n- After calling tool, say: \"Perfect! Finding options for [child's name]... 🔍\"\n\nSTYLE: Warm, professional, patient. Use names once you know them.\n\nEXAMPLE: \"Hello! 👋 I'm here to help you find the perfect tutor for your child. To get started, may I have your name?\"\n\nNever mention technical terms."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        688,
+        -320
+      ],
+      "id": "fd84aadc-e4a1-45a1-be2c-de12deb2cfa0",
+      "name": "Intake Conversation Agent1"
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 20
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        736,
+        64
+      ],
+      "id": "fba9959f-6377-4aaa-9145-a67f706836a3",
+      "name": "Conversation Memory1"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {
+          "maxTokensToSample": 10000,
+          "temperature": 0.7
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        544,
+        -112
+      ],
+      "id": "dc1103d3-b899-4af6-9093-0e50ec5bd8f5",
+      "name": "Groq Chat Model1",
+      "credentials": {
+        "groqApi": {
+          "id": "UcdOXHzuXlbLZq3s",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "complete_intake",
+        "description": "Call this when you have collected all 13 pieces of information. Provide: parent_name, parent_email, parent_phone, child_name, child_age (number), year, subject, exam (boolean), exam_date, availability (array), preference, challenges, goals.",
+        "jsCode": "const webhookUrl = 'http://localhost:5678/webhook/complete-intake';\n\nif (!$parameter.parent_name || !$parameter.parent_email || !$parameter.child_name) {\n  return { success: false, message: \"Missing required information.\" };\n}\n\nlet availArray = $parameter.availability;\nif (!Array.isArray(availArray)) {\n  availArray = typeof availArray === 'string' ? \n    (availArray.includes(',') ? availArray.split(',').map(s => s.trim()) : [availArray]) : [];\n}\n\nconst childAge = typeof $parameter.child_age === 'string' ? parseInt($parameter.child_age) : $parameter.child_age;\nconst examBool = typeof $parameter.exam === 'string' ? \n  ($parameter.exam.toLowerCase() === 'yes' || $parameter.exam.toLowerCase() === 'true') : Boolean($parameter.exam);\n\nconst data = {\n  parent_name: String($parameter.parent_name),\n  parent_email: String($parameter.parent_email),\n  parent_phone: String($parameter.parent_phone || 'Not provided'),\n  child_name: String($parameter.child_name),\n  child_age: childAge,\n  year: String($parameter.year),\n  subject: String($parameter.subject),\n  exam: examBool,\n  exam_date: String($parameter.exam_date || 'N/A'),\n  availability: availArray,\n  preference: String($parameter.preference),\n  challenges: String($parameter.challenges),\n  goals: String($parameter.goals),\n  session_id: String($parameter.session_id || $executionId || Date.now())\n};\n\nconsole.log('📤', JSON.stringify(data, null, 2));\n\ntry {\n  const res = await fetch(webhookUrl, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify(data)\n  });\n  \n  if (!res.ok) throw new Error(`${res.status}`);\n  \n  const result = res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text();\n  console.log('✅', result);\n  \n  return { success: true, message: `Perfect! Finding options for ${data.child_name}...`, submission_id: data.session_id };\n} catch (err) {\n  console.error('❌', err.message);\n  return { success: false, message: \"Connection issue. Please try again.\", error: err.message };\n}",
+        "specifyInputSchema": true,
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"parent_name\": {\n      \"type\": \"string\"\n    },\n    \"parent_email\": {\n      \"type\": \"string\"\n    },\n    \"parent_phone\": {\n      \"type\": \"string\"\n    },\n    \"child_name\": {\n      \"type\": \"string\"\n    },\n    \"child_age\": {\n      \"type\": \"number\"\n    },\n    \"year\": {\n      \"type\": \"string\"\n    },\n    \"subject\": {\n      \"type\": \"string\"\n    },\n    \"exam\": {\n      \"type\": \"boolean\"\n    },\n    \"exam_date\": {\n  \"type\": [\"string\", \"null\"],\n  \"description\": \"Exam date as text (e.g., 2026-06-10). Use null or 'N/A' if not applicable.\"\n},\n    \"availability\": {\n      \"type\": \"array\"\n    },\n    \"preference\": {\n      \"type\": \"string\"\n    },\n    \"challenges\": {\n      \"type\": \"string\"\n    },\n    \"goals\": {\n      \"type\": \"string\"\n    }\n  }\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.1,
+      "position": [
+        848,
+        -112
+      ],
+      "id": "a66fd119-8414-4158-9c8e-45ca8f7243b3",
+      "name": "complete_intake"
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Intake Conversation Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "Intake Conversation Agent1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Intake Conversation Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "complete_intake": {
+      "ai_tool": [
+        [
+          {
+            "node": "Intake Conversation Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "c9511d2b5ed8c7e6cbefb272b8ead13c2c967d9c33caa4ff9c234d7c84fb3441"
+  }
+}

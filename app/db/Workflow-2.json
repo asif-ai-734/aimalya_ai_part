@@ -1,0 +1,614 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sub-id",
+              "name": "submission_id",
+              "value": "={{ 'IN' + $now.format('yyyyMMddHHmmss') }}",
+              "type": "string"
+            },
+            {
+              "id": "parent-name",
+              "name": "parent_name",
+              "value": "={{ $json.body.parent_name }}",
+              "type": "string"
+            },
+            {
+              "id": "parent-email",
+              "name": "parent_email",
+              "value": "={{ $json.body.parent_email }}",
+              "type": "string"
+            },
+            {
+              "id": "parent-phone",
+              "name": "parent_phone",
+              "value": "={{ $json.body.parent_phone }}",
+              "type": "string"
+            },
+            {
+              "id": "child-name",
+              "name": "child_name",
+              "value": "={{ $json.body.child_name }}",
+              "type": "string"
+            },
+            {
+              "id": "child-age",
+              "name": "child_age",
+              "value": "={{ $json.body.child_age }}",
+              "type": "number"
+            },
+            {
+              "id": "year",
+              "name": "year",
+              "value": "={{ $json.body.year }}",
+              "type": "string"
+            },
+            {
+              "id": "subject",
+              "name": "subject",
+              "value": "={{ $json.body.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "exam",
+              "name": "exam",
+              "value": "={{ $json.body.exam }}",
+              "type": "boolean"
+            },
+            {
+              "id": "exam-date",
+              "name": "exam_date",
+              "value": "={{ $json.body.exam_date || 'N/A' }}",
+              "type": "string"
+            },
+            {
+              "id": "availability",
+              "name": "availability",
+              "value": "={{ $json.body.availability }}",
+              "type": "array"
+            },
+            {
+              "id": "preference",
+              "name": "preference",
+              "value": "={{ $json.body.preference }}",
+              "type": "string"
+            },
+            {
+              "id": "challenges",
+              "name": "challenges",
+              "value": "={{ $json.body.challenges }}",
+              "type": "string"
+            },
+            {
+              "id": "goals",
+              "name": "goals",
+              "value": "={{ $json.body.goals }}",
+              "type": "string"
+            },
+            {
+              "id": "session-id",
+              "name": "session_id",
+              "value": "={{ $json.body.session_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -928,
+        672
+      ],
+      "id": "300c12c9-747c-4d73-bbb1-dd87272e3c64",
+      "name": "Extract Parent Input"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "13BRejb2az8JQABl4H4X0s-I5yiwuUkE7wVA0EhhXCGc",
+          "mode": "list",
+          "cachedResultName": "ClassMatchAI_Demo_Data",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/13BRejb2az8JQABl4H4X0s-I5yiwuUkE7wVA0EhhXCGc/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=1738476676",
+          "mode": "list"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Subject",
+              "lookupValue": "={{ $json.subject }}"
+            },
+            {
+              "lookupColumn": "Status",
+              "lookupValue": "Active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -704,
+        576
+      ],
+      "id": "53c5f67b-0427-4707-aa5b-c43112976609",
+      "name": "Get Available Teachers",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ojLouv0HJOq8ANo9",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "13BRejb2az8JQABl4H4X0s-I5yiwuUkE7wVA0EhhXCGc",
+          "mode": "list",
+          "cachedResultName": "ClassMatchAI_Demo_Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=372160413",
+          "mode": "list",
+          "cachedResultName": "Groups"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Subject",
+              "lookupValue": "={{ $('Extract Parent Input').item.json.subject }}"
+            },
+            {
+              "lookupColumn": "Status",
+              "lookupValue": "Open"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -704,
+        768
+      ],
+      "id": "7745b96f-d216-4565-8816-273d2a0ee19d",
+      "name": "Get Available Groups",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ojLouv0HJOq8ANo9",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===================================================\n// INTELLIGENT TUTORING MATCHING ALGORITHM\n// WITH SLOT RECOMMENDATION\n// ===================================================\n\n// Get inputs\nconst parentData = $('Extract Parent Input').item.json;\nconst teachersRaw = $input.all()[0]?.json || [];\nconst groupsRaw = $input.all()[1]?.json || [];\n\n// Convert single items to arrays if needed\nconst teachers = Array.isArray(teachersRaw) ? teachersRaw : [teachersRaw].filter(Boolean);\nconst groups = Array.isArray(groupsRaw) ? groupsRaw : [groupsRaw].filter(Boolean);\n\nconsole.log('Parent availability:', parentData.availability);\nconsole.log('Teachers found:', teachers.length);\nconsole.log('Groups found:', groups.length);\n\n// ===================================================\n// HELPER FUNCTIONS\n// ===================================================\n\nfunction parseTimeSlot(slot) {\n  // Parse \"Tue 5-6pm\" into structured format\n  const dayMap = {\n    'mon': 'Monday', 'monday': 'Monday',\n    'tue': 'Tuesday', 'tuesday': 'Tuesday',\n    'wed': 'Wednesday', 'wednesday': 'Wednesday',\n    'thu': 'Thursday', 'thursday': 'Thursday',\n    'fri': 'Friday', 'friday': 'Friday',\n    'sat': 'Saturday', 'saturday': 'Saturday',\n    'sun': 'Sunday', 'sunday': 'Sunday'\n  };\n  \n  const slotLower = slot.toLowerCase().trim();\n  \n  // Extract day\n  let day = null;\n  for (let [key, value] of Object.entries(dayMap)) {\n    if (slotLower.startsWith(key)) {\n      day = value;\n      break;\n    }\n  }\n  \n  // Extract time\n  const timeMatch = slotLower.match(/(\\d{1,2})(?::(\\d{2}))?\\s*-\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/);\n  \n  if (!timeMatch) {\n    return { day, raw: slot, startHour: null, endHour: null };\n  }\n  \n  let startHour = parseInt(timeMatch[1]);\n  let endHour = parseInt(timeMatch[3]);\n  \n  // Handle PM conversion\n  if (slotLower.includes('pm') && startHour < 12) {\n    startHour += 12;\n  }\n  if (slotLower.includes('pm') && endHour < 12) {\n    endHour += 12;\n  }\n  \n  return { day, raw: slot, startHour, endHour };\n}\n\nfunction parseAvailability(availStr) {\n  // Convert \"Tue 5-6pm, Thu 5-6pm\" to array of parsed slots\n  if (!availStr) return [];\n  \n  if (Array.isArray(availStr)) {\n    return availStr.map(slot => parseTimeSlot(slot));\n  }\n  \n  return availStr.split(',').map(slot => parseTimeSlot(slot.trim()));\n}\n\nfunction checkExactScheduleMatch(optionSlot, parentSlots) {\n  // Check if option slot exactly matches any parent slot\n  const optionParsed = parseTimeSlot(optionSlot);\n  \n  for (let parentSlot of parentSlots) {\n    const parentParsed = parseTimeSlot(parentSlot);\n    \n    if (optionParsed.day === parentParsed.day &&\n        optionParsed.startHour === parentParsed.startHour &&\n        optionParsed.endHour === parentParsed.endHour) {\n      return true;\n    }\n  }\n  return false;\n}\n\nfunction checkPartialScheduleMatch(optionSlots, parentSlots) {\n  // Check if any option slot matches parent availability\n  for (let optionSlot of optionSlots) {\n    const optionParsed = parseTimeSlot(optionSlot);\n    \n    for (let parentSlot of parentSlots) {\n      const parentParsed = parseTimeSlot(parentSlot);\n      \n      // Same day is a partial match\n      if (optionParsed.day === parentParsed.day) {\n        return { matched: true, day: optionParsed.day };\n      }\n    }\n  }\n  return { matched: false };\n}\n\nfunction findAlternativeSlots(optionSlots, parentSlots) {\n  // Suggest alternative slots that are close to parent's preference\n  const alternatives = [];\n  const parentParsed = parentSlots.map(s => parseTimeSlot(s));\n  const optionParsed = optionSlots.map(s => parseTimeSlot(s));\n  \n  for (let optSlot of optionParsed) {\n    for (let parSlot of parentParsed) {\n      // Same day but different time\n      if (optSlot.day === parSlot.day) {\n        alternatives.push({\n          slot: optSlot.raw,\n          reason: `Same day (${optSlot.day}) as your preference`,\n          priority: 1\n        });\n      }\n      // Adjacent day\n      else {\n        alternatives.push({\n          slot: optSlot.raw,\n          reason: `Alternative day available`,\n          priority: 2\n        });\n      }\n    }\n  }\n  \n  return alternatives.sort((a, b) => a.priority - b.priority);\n}\n\nfunction scoreOption(option, parent, type) {\n  let score = 0;\n  let reasons = [];\n  let hasExactMatch = false;\n  let suggestedSlots = [];\n  \n  // 1. SCHEDULE MATCH (50 points) - MOST CRITICAL\n  if (type === 'group') {\n    // For groups, check if the fixed schedule matches\n    hasExactMatch = checkExactScheduleMatch(option.Schedule, parent.availability);\n    \n    if (hasExactMatch) {\n      score += 50;\n      reasons.push(`✓ Perfect schedule match: ${option.Schedule}`);\n    } else {\n      // Suggest this group with alternative time\n      const alternatives = findAlternativeSlots([option.Schedule], parent.availability);\n      if (alternatives.length > 0) {\n        score += 20;\n        suggestedSlots.push({\n          original: option.Schedule,\n          reason: alternatives[0].reason\n        });\n        reasons.push(`~ Alternative: ${option.Schedule} (${alternatives[0].reason})`);\n      } else {\n        score += 5;\n        suggestedSlots.push({\n          original: option.Schedule,\n          reason: 'Different day/time available'\n        });\n        reasons.push(`~ Available: ${option.Schedule}`);\n      }\n    }\n  } else {\n    // For 1:1, check teacher's availability\n    const teacherSlots = parseAvailability(option.Availability);\n    const partialMatch = checkPartialScheduleMatch(teacherSlots.map(s => s.raw), parent.availability);\n    \n    if (partialMatch.matched) {\n      score += 45;\n      hasExactMatch = true;\n      reasons.push(`✓ Teacher available on ${partialMatch.day}`);\n    } else {\n      // Suggest alternative slots from teacher's availability\n      const alternatives = findAlternativeSlots(teacherSlots.map(s => s.raw), parent.availability);\n      if (alternatives.length > 0) {\n        score += 30;\n        suggestedSlots = alternatives.slice(0, 2).map(alt => ({\n          original: alt.slot,\n          reason: alt.reason\n        }));\n        reasons.push(`~ Alternative slots available: ${alternatives.slice(0, 2).map(a => a.slot).join(', ')}`);\n      } else {\n        score += 15;\n        suggestedSlots.push({\n          original: teacherSlots[0]?.raw || 'Contact for availability',\n          reason: 'Flexible scheduling possible'\n        });\n        reasons.push(`~ Flexible: ${teacherSlots[0]?.raw || 'Multiple times available'}`);\n      }\n    }\n  }\n  \n  // 2. GROUP SIZE / PERSONALIZATION (25 points)\n  if (type === 'group') {\n    const capacity = option.Max_Size - option.Current_Size;\n    const capacityScore = (capacity / option.Max_Size) * 25;\n    score += capacityScore;\n    \n    if (option.Current_Size === 0) {\n      reasons.push(`✓ New group - shape the learning environment`);\n    } else if (capacity === 1) {\n      reasons.push(`⚠ Last spot available`);\n    } else {\n      reasons.push(`✓ Small group (${option.Current_Size} student${option.Current_Size > 1 ? 's' : ''})`);\n    }\n  } else {\n    score += 25;\n    reasons.push(`✓ 100% personalized 1:1 attention`);\n  }\n  \n  // 3. EXPERIENCE (15 points)\n  const experience = option.Experience || '0 years';\n  const years = parseInt(experience);\n  \n  if (years >= 5) {\n    score += 15;\n    reasons.push(`✓ Highly experienced (${experience})`);\n  } else if (years >= 3) {\n    score += 10;\n    reasons.push(`✓ Experienced (${experience})`);\n  } else {\n    score += 5;\n  }\n  \n  // 4. FOCUS AREA MATCH (10 points)\n  if (type === 'group' && option.Focus_Area && parent.challenges) {\n    const focusLower = option.Focus_Area.toLowerCase();\n    const challengesLower = parent.challenges.toLowerCase();\n    \n    if (focusLower.includes(challengesLower) || challengesLower.includes(focusLower)) {\n      score += 10;\n      reasons.push(`✓ Specializes in ${option.Focus_Area.toLowerCase()}`);\n    }\n  }\n  \n  // 5. PREFERENCE BONUS (10 points)\n  if (parent.preference && parent.preference.toLowerCase().includes('group') && type === 'group') {\n    score += 10;\n    reasons.push(`✓ Matches your group preference`);\n  } else if (parent.preference && parent.preference.toLowerCase().includes('1:1') && type === '1:1') {\n    score += 10;\n    reasons.push(`✓ Matches your 1:1 preference`);\n  }\n  \n  return { score, reasons, hasExactMatch, suggestedSlots };\n}\n\n// ===================================================\n// PROCESS GROUPS\n// ===================================================\n\nconst groupOptions = groups.map(group => {\n  const { score, reasons, hasExactMatch, suggestedSlots } = scoreOption(group, parentData, 'group');\n  \n  return {\n    id: group.Group_ID,\n    type: 'Group',\n    name: `${group.Subject} - ${group.Level}`,\n    schedule: group.Schedule,\n    teacher_id: group.Teacher_ID,\n    current_size: parseInt(group.Current_Size) || 0,\n    max_size: parseInt(group.Max_Size) || 3,\n    focus_area: group.Focus_Area,\n    score: score,\n    reasons: reasons,\n    hasExactMatch: hasExactMatch,\n    suggestedSlots: suggestedSlots,\n    raw_data: group\n  };\n});\n\n// ===================================================\n// PROCESS 1:1 OPTIONS\n// ===================================================\n\nconst oneToOneOptions = teachers.map(teacher => {\n  const { score, reasons, hasExactMatch, suggestedSlots } = scoreOption(teacher, parentData, '1:1');\n  \n  // Find best matching time slot\n  const teacherSlots = parseAvailability(teacher.Availability);\n  const parentSlots = parentData.availability;\n  \n  let bestSlot = teacherSlots[0]?.raw || 'Flexible';\n  \n  // Try to find exact match first\n  for (let tSlot of teacherSlots) {\n    if (checkExactScheduleMatch(tSlot.raw, parentSlots)) {\n      bestSlot = tSlot.raw;\n      break;\n    }\n  }\n  \n  return {\n    id: teacher.Teacher_ID,\n    type: '1:1',\n    name: `1:1 with ${teacher.Name}`,\n    schedule: bestSlot,\n    teacher_name: teacher.Name,\n    experience: teacher.Experience,\n    hourly_rate: teacher.Hourly_Rate,\n    score: score,\n    reasons: reasons,\n    hasExactMatch: hasExactMatch,\n    suggestedSlots: suggestedSlots,\n    raw_data: teacher\n  };\n});\n\n// ===================================================\n// COMBINE & RANK OPTIONS\n// ===================================================\n\nconst allOptions = [...groupOptions, ...oneToOneOptions];\n\nconsole.log('Total options before ranking:', allOptions.length);\n\n// Sort by score (highest first)\nallOptions.sort((a, b) => b.score - a.score);\n\n// Prioritize exact matches at the top\nconst exactMatches = allOptions.filter(opt => opt.hasExactMatch);\nconst partialMatches = allOptions.filter(opt => !opt.hasExactMatch);\n\nconst rankedOptions = [...exactMatches, ...partialMatches];\n\n// Get top 3\nlet top3 = rankedOptions.slice(0, 3);\n\n// ===================================================\n// ENSURE DIVERSITY\n// ===================================================\n\nif (top3.length > 0) {\n  const hasGroup = top3.some(opt => opt.type === 'Group');\n  const hasOneToOne = top3.some(opt => opt.type === '1:1');\n  \n  // If all top 3 are same type, force diversity\n  if (!hasGroup && groupOptions.length > 0) {\n    const topGroup = groupOptions.sort((a, b) => b.score - a.score)[0];\n    top3[2] = topGroup;\n  } else if (!hasOneToOne && oneToOneOptions.length > 0) {\n    const topOneToOne = oneToOneOptions.sort((a, b) => b.score - a.score)[0];\n    top3[2] = topOneToOne;\n  }\n}\n\n// ===================================================\n// HANDLE NO MATCHES SCENARIO\n// ===================================================\n\nif (top3.length === 0) {\n  return {\n    json: {\n      submission_id: parentData.submission_id,\n      parent_data: parentData,\n      matched_options: [],\n      no_matches: true,\n      message: `We couldn't find exact matches for ${parentData.subject} at your preferred times. However, we have teachers available at alternative times. Would you like to see flexible scheduling options?`,\n      all_available_teachers: teachers.map(t => ({\n        name: t.Name,\n        availability: t.Availability,\n        experience: t.Experience\n      })),\n      all_available_groups: groups.map(g => ({\n        name: `${g.Subject} - ${g.Level}`,\n        schedule: g.Schedule,\n        current_size: g.Current_Size,\n        focus: g.Focus_Area\n      }))\n    }\n  };\n}\n\n// ===================================================\n// FORMAT OUTPUT\n// ===================================================\n\nreturn {\n  json: {\n    submission_id: parentData.submission_id,\n    parent_data: parentData,\n    matched_options: top3,\n    no_matches: false,\n    matching_summary: {\n      total_groups_found: groupOptions.length,\n      total_teachers_found: oneToOneOptions.length,\n      exact_matches_found: exactMatches.length,\n      top_score: top3[0]?.score || 0,\n      matching_timestamp: new Date().toISOString()\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        672
+      ],
+      "id": "34e1d972-4c61-48ce-ac12-53c29e1ad0c3",
+      "name": "Matching Algorithm"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "no-matches-condition",
+              "leftValue": "={{ $json.no_matches }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        672
+      ],
+      "id": "ad046066-a696-4ce9-b660-d0e3a773aeaf",
+      "name": "Check If Matches Found"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Extract Parent Input').item.json.session_id }}",
+          "mode": "id"
+        },
+        "text": "=I apologize, but I couldn't find tutors or groups that exactly match {{ $('Extract Parent Input').item.json.child_name }}'s availability ({{ $('Extract Parent Input').item.json.availability.join(', ') }}).\n\nHowever, I have some great options at alternative times:\n\n**Available Teachers:**\n{{ $json.all_available_teachers.map(t => `• ${t.name} - Available: ${t.availability} (${t.experience})`).join('\\n') }}\n\n**Available Groups:**\n{{ $json.all_available_groups.map(g => `• ${g.name} - ${g.schedule} (${g.current_size} students, Focus: ${g.focus})`).join('\\n') }}\n\nWould any of these alternative times work for you? I'm happy to discuss flexible scheduling options! 😊",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        -48,
+        864
+      ],
+      "id": "59547942-7848-4537-839f-3de18c82d013",
+      "name": "Send No Matches Message",
+      "webhookId": "59494c52-2343-4cd4-a07a-99545e1494b7"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 2048,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a warm, experienced tutoring coordinator writing to a parent.\\n\\nPARENT INFORMATION:\\n- Parent Name: {{ $('Extract Parent Input').item.json.parent_name }}\\n- Child Name: {{ $('Extract Parent Input').item.json.child_name }}\\n- Child Age: {{ $('Extract Parent Input').item.json.child_age }}\\n- Year: {{ $('Extract Parent Input').item.json.year }}\\n- Subject: {{ $('Extract Parent Input').item.json.subject }}\\n- Requested Availability: {{ $('Extract Parent Input').item.json.availability.join(', ') }}\\n- Learning Preference: {{ $('Extract Parent Input').item.json.preference }}\\n- Challenges: {{ $('Extract Parent Input').item.json.challenges }}\\n- Goals: {{ $('Extract Parent Input').item.json.goals }}\\n\\nMATCHED OPTIONS (Top 3):\\n{{ JSON.stringify($json.matched_options, null, 2) }}\\n\\nTASK:\\nWrite a warm, personalized message explaining these 3 tutoring options.\\n\\nIMPORTANT INSTRUCTIONS:\\n1. Start with a warm greeting using the parent's first name\\n2. Briefly acknowledge their child's specific needs\\n3. For EACH option, present:\\n   - Option number with emoji (1️⃣ 2️⃣ 3️⃣)\\n   - Clear title (e.g., \\\"Group A: Tuesday 5-6pm\\\" or \\\"1:1 with Sarah Khan\\\")\\n   - Schedule details\\n   - If hasExactMatch is true: Emphasize it matches their preferred times\\n   - If hasExactMatch is false and suggestedSlots exist: Present it as a valuable alternative and explain why it could work (e.g., same day, nearby time, teacher flexibility)\\n   - Key selling points from the 'reasons' array\\n   - What makes this option unique\\n\\n4. After all options, add:\\n   - Brief encouragement to choose what fits best\\n   - Mention they'll receive a free assessment after booking\\n   - Warm closing\\n\\nTONE:\\n- Warm and personal (use names)\\n- Professional but conversational\\n- Reassuring and helpful\\n- Enthusiastic about the options\\n- When suggesting alternative times, frame positively (\\\"great alternative\\\", \\\"flexible option\\\", \\\"could work well\\\")\\n\\nLENGTH: 300-400 words\\n\\nFORMAT: Use line breaks for readability, but keep it natural (not overly formal or list-like)\\n\\nAVOID:\\n- Jargon or technical terms\\n- Pressure tactics\\n- Being too salesy\\n- Apologizing for alternative times (frame them positively instead)\\n\\nWrite the complete message now.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -48,
+        464
+      ],
+      "id": "5a86da27-8036-4130-8c80-a8acf50941ec",
+      "name": "Generate AI Summary"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiResponse = $input.first().json;\nconst matchData = $('Matching Algorithm').item.json;\nconst parentData = $('Extract Parent Input').item.json;\n\n// Extract AI message\nlet aiMessage = '';\nif (aiResponse.content && Array.isArray(aiResponse.content)) {\n  aiMessage = aiResponse.content\n    .filter(item => item.type === 'text')\n    .map(item => item.text)\n    .join('\\n');\n}\n\n// Create booking buttons for each option\nconst bookingButtons = matchData.matched_options.map((opt, idx) => {\n  const optionNum = idx + 1;\n  let scheduleInfo = opt.schedule;\n  \n  // Add suggested slots if available\n  if (!opt.hasExactMatch && opt.suggestedSlots && opt.suggestedSlots.length > 0) {\n    scheduleInfo += ` (${opt.suggestedSlots[0].reason})`;\n  }\n  \n  return {\n    type: 'button',\n    text: {\n      type: 'plain_text',\n      text: `Book Option ${optionNum}: ${opt.name}`,\n      emoji: true\n    },\n    value: JSON.stringify({\n      submission_id: matchData.submission_id,\n      option_number: optionNum,\n      option_id: opt.id,\n      option_type: opt.type,\n      schedule: opt.schedule,\n      parent_email: parentData.parent_email,\n      child_name: parentData.child_name\n    }),\n    action_id: `book_option_${optionNum}`\n  };\n});\n\nreturn {\n  json: {\n    session_id: parentData.session_id,\n    ai_message: aiMessage,\n    booking_buttons: bookingButtons,\n    matched_options: matchData.matched_options,\n    submission_id: matchData.submission_id,\n    parent_data: parentData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        464
+      ],
+      "id": "9cfdea1f-a2b9-4fb4-87ca-9c0ebdb3fb8f",
+      "name": "Format Chat Response"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.session_id }}",
+          "mode": "id"
+        },
+        "text": "={{ $json.ai_message }}",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        400,
+        464
+      ],
+      "id": "a5711bda-7f46-49db-af61-a989e84beb26",
+      "name": "Send Options to Parent",
+      "webhookId": "27b1f497-d14e-44d2-8c1d-00d77daeaf80"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "13BRejb2az8JQABl4H4X0s-I5yiwuUkE7wVA0EhhXCGc",
+          "mode": "list",
+          "cachedResultName": "ClassMatchAI_Demo_Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=INTAKE_SUBMISSIONS",
+          "mode": "list",
+          "cachedResultName": "Intake_Submissions"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Submission_ID": "={{ $('Extract Parent Input').item.json.submission_id }}",
+            "Timestamp": "={{ $now.toISO() }}",
+            "Parent_Name": "={{ $('Extract Parent Input').item.json.parent_name }}",
+            "Parent_Email": "={{ $('Extract Parent Input').item.json.parent_email }}",
+            "Parent_Phone": "={{ $('Extract Parent Input').item.json.parent_phone }}",
+            "Child_Name": "={{ $('Extract Parent Input').item.json.child_name }}",
+            "Child_Age": "={{ $('Extract Parent Input').item.json.child_age }}",
+            "Year": "={{ $('Extract Parent Input').item.json.year }}",
+            "Subject": "={{ $('Extract Parent Input').item.json.subject }}",
+            "Exam_Date": "={{ $('Extract Parent Input').item.json.exam_date }}",
+            "Availability": "={{ $('Extract Parent Input').item.json.availability.join(', ') }}",
+            "Preference": "={{ $('Extract Parent Input').item.json.preference }}",
+            "Challenges": "={{ $('Extract Parent Input').item.json.challenges }}",
+            "Goals": "={{ $('Extract Parent Input').item.json.goals }}",
+            "Status": "Pending"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        400,
+        672
+      ],
+      "id": "362fa6b8-3c38-44e0-b239-7a48b79d3014",
+      "name": "Save to Intake Submissions",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ojLouv0HJOq8ANo9",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "13BRejb2az8JQABl4H4X0s-I5yiwuUkE7wVA0EhhXCGc",
+          "mode": "list",
+          "cachedResultName": "ClassMatchAI_Demo_Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=MATCH_RESULTS",
+          "mode": "list",
+          "cachedResultName": "Match_Results"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Match_ID": "={{ 'M' + $now.format('yyyyMMddHHmmss') }}",
+            "Submission_ID": "={{ $('Extract Parent Input').item.json.submission_id }}",
+            "Option_1_ID": "={{ $('Matching Algorithm').item.json.matched_options[0]?.id || 'N/A' }}",
+            "Option_1_Type": "={{ $('Matching Algorithm').item.json.matched_options[0]?.type || 'N/A' }}",
+            "Option_1_Score": "={{ $('Matching Algorithm').item.json.matched_options[0]?.score || 0 }}",
+            "Option_2_ID": "={{ $('Matching Algorithm').item.json.matched_options[1]?.id || 'N/A' }}",
+            "Option_2_Type": "={{ $('Matching Algorithm').item.json.matched_options[1]?.type || 'N/A' }}",
+            "Option_2_Score": "={{ $('Matching Algorithm').item.json.matched_options[1]?.score || 0 }}",
+            "Option_3_ID": "={{ $('Matching Algorithm').item.json.matched_options[2]?.id || 'N/A' }}",
+            "Option_3_Type": "={{ $('Matching Algorithm').item.json.matched_options[2]?.type || 'N/A' }}",
+            "Option_3_Score": "={{ $('Matching Algorithm').item.json.matched_options[2]?.score || 0 }}",
+            "Selected_Option": "",
+            "Timestamp": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        400,
+        864
+      ],
+      "id": "1dfd9567-5544-437f-8368-fb75cfb9e96d",
+      "name": "Save Match Results",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ojLouv0HJOq8ANo9",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=Thank you! I've recorded your preferences and presented the best options. Check the chat for your personalized recommendations! 🎓",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        624,
+        672
+      ],
+      "id": "b580054b-1e3c-4b4b-bdcc-a03cd62b7a18",
+      "name": "Webhook Response"
+    },
+    {
+      "parameters": {
+        "path": "complete_intake",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1152,
+        672
+      ],
+      "id": "1d1d3179-5144-4885-be5c-f38be1e209a4",
+      "name": "complete_intake1",
+      "webhookId": "matching-webhook-id"
+    }
+  ],
+  "connections": {
+    "Extract Parent Input": {
+      "main": [
+        [
+          {
+            "node": "Get Available Teachers",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Available Groups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Available Teachers": {
+      "main": [
+        [
+          {
+            "node": "Matching Algorithm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Available Groups": {
+      "main": [
+        [
+          {
+            "node": "Matching Algorithm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Matching Algorithm": {
+      "main": [
+        [
+          {
+            "node": "Check If Matches Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Matches Found": {
+      "main": [
+        [
+          {
+            "node": "Generate AI Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send No Matches Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate AI Summary": {
+      "main": [
+        [
+          {
+            "node": "Format Chat Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Chat Response": {
+      "main": [
+        [
+          {
+            "node": "Send Options to Parent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save to Intake Submissions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Match Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Options to Parent": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Intake Submissions": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Match Results": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "complete_intake1": {
+      "main": [
+        [
+          {
+            "node": "Extract Parent Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "c9511d2b5ed8c7e6cbefb272b8ead13c2c967d9c33caa4ff9c234d7c84fb3441"
+  }
+}

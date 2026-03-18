@@ -54,7 +54,6 @@ ENV/
 # =========================
 # IDEs & Editors
 # =========================
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -73,3 +72,6 @@ ENV/
 tmp/
 temp/
 *.tmp
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
