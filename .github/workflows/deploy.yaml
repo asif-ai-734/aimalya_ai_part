@@ -38,19 +38,16 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd /home/ubuntu/your-project
+            cd /home/ubuntu/ReviewIQ_AI_part
 
             echo "Pulling latest image..."
             docker pull $IMAGE_NAME:latest
 
-            echo "Stopping old containers..."
-            docker compose down
+            echo "Restarting container with latest image..."
+            docker compose up -d
 
             echo "Removing unused images..."
             docker image prune -f
 
-            echo "Starting new containers..."
-            docker compose up -d --build
-
-            echo "Cleanup old containers..."
+            echo "Cleanup stopped containers..."
             docker container prune -f
