@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  IMAGE_NAME: softvence/ReviewIQfastapi-app
+  IMAGE_NAME: softvence/reviewiq-fastapi-app
 
 jobs:
   build-and-deploy:

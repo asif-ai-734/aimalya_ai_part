@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   fastapi:
-    image: softvence/ReviewIQfastapi-app:latest
+    image: softvence/reviewiq-fastapi-app:latest
     container_name: fastapi_app
     restart: always
 
