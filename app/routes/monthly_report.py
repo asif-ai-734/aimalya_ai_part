@@ -1,6 +1,7 @@
 #app.routes.monthly_report.py
 from fastapi import APIRouter
 from collections import Counter
+from app.db.business_context_store import get_latest_business_context
 from app.services import (
     place_loader,
     dashboard_analysis,
@@ -12,8 +13,9 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 @router.get("/monthly")
-async def monthly_report():
-    place_data = await place_loader.load_place_data()
+async def monthly_report(place_id: str | None = None):
+    place_data = await place_loader.load_place_data(place_id)
+    context = await get_latest_business_context(place_id)
     reviews = place_data.get("reviews", [])
 
     analysis = await dashboard_analysis.analyze_reviews(reviews)
@@ -32,11 +34,18 @@ async def monthly_report():
 
     ai_summary = await monthly_report_ai_service.generate_monthly_ai_summary({
         "reviews_count": len(reviews),
-        "sentiments": dict(sentiment_counter)
+        "sentiments": dict(sentiment_counter),
+        "business_goals": context.get("goals", []) if context else [],
+        "report_frequency": context.get("report_frequency") if context else None,
     })
-    return monthly_report_service.build_monthly_report(
+    report = monthly_report_service.build_monthly_report(
         reviews,
         analysis,
         previous_kpis,
         ai_summary
     )
+    report["business_goals"] = context.get("goals", []) if context else []
+    report["report_frequency"] = (
+        context.get("report_frequency") if context else None
+    )
+    return report

@@ -78,6 +78,16 @@ def extract_criteria_scores(sentiment: str, keywords: list[str]) -> dict:
 # Main Gemini Review Analysis
 # -------------------------------------------------
 async def analyze_review_with_gemini(review_text: str) -> dict:
+    if not (review_text or "").strip():
+        return {
+            "sentiment": "Neutral",
+            "emotions": ["Neutral"],
+            "strengths": [],
+            "issues": [],
+            "keywords": [],
+            "criteria_scores": {},
+        }
+
     cache_key = make_cache_key(
         "review_analysis",
         settings.GEMINI_MODEL,

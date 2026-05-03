@@ -1,3 +1,4 @@
+import asyncio
 from google import genai
 from app.core.config import get_settings
 import json, re 
@@ -11,7 +12,7 @@ def _extract_json(text: str):
     match= re.search (r"\{.*\}", text, re.DOTALL)
     return json.loads(match.group())
 
-def generate_competitive_strategy(playload: dict):
+async def generate_competitive_strategy(playload: dict):
     prompt= f"""
     You are a business strategy consultant.
 
@@ -28,9 +29,10 @@ def generate_competitive_strategy(playload: dict):
     }
     """
 
-    res = client.models.generate_content(
-        model = settings.GEMINI_MODEL,
-        contents = prompt
+    res = await asyncio.to_thread(
+        client.models.generate_content,
+        model=settings.GEMINI_MODEL,
+        contents=prompt,
     )
 
     return _extract_json(res.text)

@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.db.business_context_store import get_latest_business_context
 from app.services import (
     place_loader,
     competitor_loader,
@@ -10,8 +11,9 @@ router = APIRouter(prefix="/competitors", tags=["Competitor Analysis"])
 
 
 @router.get("/analysis")
-async def competitor_report():
-    place_data = await place_loader.load_place_data()
+async def competitor_report(place_id: str | None = None):
+    place_data = await place_loader.load_place_data(place_id)
+    context = await get_latest_business_context(place_id)
     my = place_data
 
     my_rating = my.get("rating", 0)
@@ -29,7 +31,7 @@ async def competitor_report():
         ),
     }
 
-    competitors = competitor_loader.load_competitors_from_db()
+    competitors = await competitor_loader.load_competitors_from_db(place_id)
 
     competitor_businesses = []
     for c in competitors:
@@ -58,13 +60,20 @@ async def competitor_report():
         competitor_analysis.extract_advantages(criteria, my_business["name"])
     )
 
-    ai = competitor_ai_service.generate_competitive_strategy({
+    business_goals = context.get("goals", []) if context else []
+    report_frequency = context.get("report_frequency") if context else None
+
+    ai = await competitor_ai_service.generate_competitive_strategy({
         "my_business": my_business,
         "competitors": competitor_businesses,
-        "criteria_comparison": criteria
+        "criteria_comparison": criteria,
+        "business_goals": business_goals,
+        "report_frequency": report_frequency,
     })
 
     return {
+        "business_goals": business_goals,
+        "report_frequency": report_frequency,
         "cards": businesses,
         "performance_comparison": performance,
         "category_radar": radar,

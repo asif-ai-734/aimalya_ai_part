@@ -13,8 +13,8 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 @router.get("/overview")
-async def overview_dashboard():
-    place_data = await place_loader.load_place_data()
+async def overview_dashboard(place_id: str | None = None):
+    place_data = await place_loader.load_place_data(place_id)
     reviews = place_data.get("reviews", [])
 
     # 1️⃣ Analyze reviews ONCE (Gemini already inside)

@@ -1,38 +1,42 @@
-import json
-from pathlib import Path
-
 import requests
+from app.db.business_context_store import get_latest_business_context
+from app.db.place_store import get_place_data
 from app.core.config import get_settings
 
 # Load app settings (for API keys, paths, etc.).
 settings = get_settings()
 
-# Local JSON file used as a DB-backed data source for competitors.
-DATA_PATH = Path("app/db/competitor.json")
-
 # Valid business types we treat as primary for the Google Places API call.
 PRIMARY_TYPES = ["cafe", "restaurant", "bar", "bakery"]
 
 
-def load_competitors_from_db() -> list[dict]:
-    # Read competitors from the local JSON "DB" file if it exists.
-    if not DATA_PATH.exists():
+def _to_competitor_card(place: dict) -> dict:
+    return {
+        "place_id": place.get("place_id"),
+        "name": place.get("name", "Unknown"),
+        "rating": place.get("rating", 0),
+        "reviews": place.get("user_ratings_total", 0),
+        "price_level": place.get("price_level", 2),
+    }
+
+
+async def load_competitors_from_db(place_id: str | None = None) -> list[dict]:
+    context = await get_latest_business_context(place_id)
+    if not context:
         return []
 
-    with DATA_PATH.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+    competitors = []
+    for competitor_place_id in context.get("competitor_place_ids", []):
+        place = await get_place_data(competitor_place_id)
+        if place:
+            competitors.append(_to_competitor_card(place))
 
-    # Support either a list at the root or a keyed object like {"competitors": [...]}.
-    if isinstance(data, dict):
-        data = data.get("competitors", [])
-
-    # Ensure the return is always a list of competitor dicts.
-    return data if isinstance(data, list) else []
+    return competitors
 
 
 def find_competitors_from_place(place_data: dict, radius: int = 1500, limit: int = 5):
     # Extract the primary place details from the Google Place Details response.
-    result = place_data["result"]
+    result = place_data.get("result", place_data)
 
     # Pull coordinates used for the nearby search.
     lat = result["geometry"]["location"]["lat"]
@@ -52,7 +56,7 @@ def find_competitors_from_place(place_data: dict, radius: int = 1500, limit: int
         "location": f"{lat},{lng}",
         "radius": radius,
         "type": primary_type,
-        "key": settings.GOOGLE_PLACES_API_KEY,
+        "key": settings.google_places_api_key,
     }
 
     # Call Google Places API and parse the JSON response.

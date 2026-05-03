@@ -1,17 +1,28 @@
 #app.services.place_loader.py
-import json
-from pathlib import Path
-from app.db.place_store import upsert_place_data, get_place_data
+from app.db.business_context_store import get_latest_business_context
+from app.db.place_store import get_place_data
 
 
-DATA_PATH = Path("app/db/demo.json")
+class PlaceDataNotFound(LookupError):
+    pass
 
-async def load_place_data():
-    with open(DATA_PATH, "r", encoding="utf-8") as f:
-        place = json.load(f)["result"]
 
-    # Upsert on every load so only new data is added.
-    await upsert_place_data(place)
+async def load_place_data(place_id: str | None = None):
+    if place_id:
+        place = await get_place_data(place_id)
+        if place:
+            return place
 
-    cached = await get_place_data(place.get("place_id"))
-    return cached or place
+    context = await get_latest_business_context(place_id)
+    if context:
+        place = await get_place_data(context["primary_place_id"])
+        if place:
+            return place
+
+    place = await get_place_data(place_id)
+    if place:
+        return place
+
+    raise PlaceDataNotFound(
+        "No saved Google Places data found. Submit POST /businesses/fetch first."
+    )

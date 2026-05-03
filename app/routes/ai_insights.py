@@ -1,8 +1,8 @@
 from fastapi import APIRouter
+from app.db.business_context_store import get_latest_business_context
 from app.services import (
     place_loader,
     overview_service,
-    criteria_service,
     criteria_service,
     dashboard_analysis,
     insights_aggregation_service,
@@ -13,8 +13,9 @@ router = APIRouter(prefix="/insights", tags=["AI Insights"])
 
 
 @router.get("/recommendations")
-async def ai_insights():
-    place_data = await place_loader.load_place_data()
+async def ai_insights(place_id: str | None = None):
+    place_data = await place_loader.load_place_data(place_id)
+    context = await get_latest_business_context(place_id)
     reviews = place_data.get("reviews", [])
 
     analysis = await dashboard_analysis.analyze_reviews(reviews)
@@ -34,12 +35,16 @@ async def ai_insights():
     reviews,
     analysis["reviews_analysis"]
     )
+    business_goals = context.get("goals", []) if context else []
+    report_frequency = context.get("report_frequency") if context else None
 
     insights_input = {
         "overview": overview,
         "performance_by_category": performance_by_category,
         "emerging_trends": emerging,
-        "declining_areas": declining
+        "declining_areas": declining,
+        "business_goals": business_goals,
+        "report_frequency": report_frequency,
     }
 
     ai_insights = await ai_insights_service.generate_ai_insights(insights_input)
@@ -48,5 +53,7 @@ async def ai_insights():
         **ai_insights,
         "performance_by_category": performance_by_category,
         "emerging_trends": emerging,
-        "declining_areas": declining
+        "declining_areas": declining,
+        "business_goals": business_goals,
+        "report_frequency": report_frequency,
     }

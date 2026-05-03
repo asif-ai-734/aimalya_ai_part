@@ -39,7 +39,9 @@ def build_criteria_comparison(businesses: list, my_name: str):
 
     for key in keys:
         scores= [(b["name"], b["criteria"][key]) for b in businesses]
-        avg= round(sum(s for _, s in scores) / len(scores) / len(scores), 1)
+        competitor_scores = [score for name, score in scores if name != my_name]
+        avg_source = competitor_scores or [score for _, score in scores]
+        avg= round(sum(avg_source) / len(avg_source), 1)
         leader= max(scores, key= lambda x:x[1])
 
         my_score = next(

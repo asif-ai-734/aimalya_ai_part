@@ -1,10 +1,11 @@
 from google import genai
-import os
+from app.core.config import get_settings
 
-client = genai.Client(api_key="AIzaSyC4ZkWQ_5yyfTWzsBETBJB_byWmzj6hfd4")
+settings = get_settings()
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 response = client.models.generate_content(
-    model="gemini-2.5-flash",
+    model=settings.GEMINI_MODEL,
     contents="Say ONLY the word: OK"
 )
 

@@ -32,17 +32,22 @@ def build_monthly_report(
     total_reviews = len(reviews)
     avg_rating = round(mean(ratings), 1) if ratings else 0
 
+    def percent(count: int) -> int:
+        if not total_reviews:
+            return 0
+        return round((count / total_reviews) * 100)
+
     sentiment_breakdown = {
         "positive": {
-            "percent": round((sentiment_counter["Positive"] / total_reviews) * 100),
+            "percent": percent(sentiment_counter["Positive"]),
             "count": sentiment_counter["Positive"]
         },
         "neutral": {
-            "percent": round((sentiment_counter["Neutral"] / total_reviews) * 100),
+            "percent": percent(sentiment_counter["Neutral"]),
             "count": sentiment_counter["Neutral"]
         },
         "negative": {
-            "percent": round((sentiment_counter["Negative"] / total_reviews) * 100),
+            "percent": percent(sentiment_counter["Negative"]),
             "count": sentiment_counter["Negative"]
         }
     }
