@@ -41,7 +41,7 @@ jobs:
             cd /home/ubuntu/ReviewIQ_AI_part
 
             echo "Pulling latest image..."
-            docker pull $IMAGE_NAME:latest
+            docker pull softvence/reviewiq-fastapi-app:latest
 
             echo "Restarting container with latest image..."
             docker compose up -d
