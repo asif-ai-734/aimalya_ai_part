@@ -46,6 +46,8 @@ coverage/
 __pycache__/
 *.py[cod]
 *.pyo
+*.py[cod]
+*$py.class
 *.pyd
 .venv/
 venv/
