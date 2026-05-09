@@ -1,29 +1,13 @@
 import asyncio
 import hashlib
 import json
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 
-from app.core.config import get_settings
-
-
-settings = get_settings()
-
-
-def _ensure_db_dir(path: str) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-
-
-def _connect() -> sqlite3.Connection:
-    _ensure_db_dir(settings.DB_PATH)
-    conn = sqlite3.connect(settings.DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+from app.db.database import connect
 
 
 def _init_cache_sync() -> None:
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS llm_cache (
@@ -50,7 +34,7 @@ def make_cache_key(kind: str, model: str, prompt_version: str, input_obj: dict) 
 
 def _get_cached_response_sync(cache_key: str) -> dict | None:
     _init_cache_sync()
-    with _connect() as conn:
+    with connect() as conn:
         row = conn.execute(
             "SELECT payload FROM llm_cache WHERE cache_key = ?",
             (cache_key,),
@@ -72,7 +56,7 @@ def _set_cached_response_sync(
     prompt_version: str,
 ) -> None:
     _init_cache_sync()
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO llm_cache

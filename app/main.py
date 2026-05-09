@@ -1,8 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from app.db.business_context_store import init_business_context_db
+from app.db.business_store import init_user_business_db
+from app.db.cache import init_cache
+from app.db.place_store import init_place_db
 from app.routes import overview, review_analysis, ai_insights, monthly_report
 from app.routes import competitor_analysis
 from app.routes import business_setup
+from app.routes import business_management
 from app.routes import goals_set_up_py
 from app.services.place_loader import PlaceDataNotFound
 
@@ -27,6 +32,15 @@ app.include_router(review_analysis.router)
 app.include_router(ai_insights.router)
 app.include_router(monthly_report.router)
 app.include_router(competitor_analysis.router)
+app.include_router(business_management.router)
+
+
+@app.on_event("startup")
+async def init_databases():
+    await init_cache()
+    await init_place_db()
+    await init_business_context_db()
+    await init_user_business_db()
 
 
 

@@ -1,30 +1,14 @@
 import asyncio
 import hashlib
 import json
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-from app.core.config import get_settings
-
-
-settings = get_settings()
-
-
-def _ensure_db_dir(path: str) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-
-
-def _connect() -> sqlite3.Connection:
-    _ensure_db_dir(settings.DB_PATH)
-    conn = sqlite3.connect(settings.DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+from app.db.database import connect
 
 
 def _init_place_db_sync() -> None:
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS places (
@@ -116,7 +100,7 @@ def _upsert_place_data_sync(place: dict) -> None:
 
     opening_hours = place.get("opening_hours", {})
 
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO places (
@@ -204,7 +188,7 @@ async def upsert_place_data(place: dict) -> None:
 
 def _get_place_data_sync(place_id: str | None = None) -> dict | None:
     _init_place_db_sync()
-    with _connect() as conn:
+    with connect() as conn:
         if place_id:
             place_row = conn.execute(
                 "SELECT * FROM places WHERE place_id = ?",

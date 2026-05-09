@@ -21,6 +21,7 @@ class BusinessSetupRequest(BaseModel):
         extra="forbid",
         json_schema_extra={
             "example": {
+                "user_id": "user_123",
                 "businesses": [
                     {
                         "name": "XYZ Food Corner",
@@ -51,4 +52,5 @@ class BusinessSetupRequest(BaseModel):
         },
     )
 
+    user_id: str = Field(..., min_length=1)
     businesses: list[BusinessInput] = Field(..., min_length=1)

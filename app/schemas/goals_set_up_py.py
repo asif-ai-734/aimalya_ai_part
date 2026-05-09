@@ -6,6 +6,7 @@ class GoalsSetupRequest(BaseModel):
         extra="forbid",
         json_schema_extra={
             "example": {
+                "user_id": "user_123",
                 "business_name": "Abc coffe house",
                 "competitors_urls": [
                     "map.google.com/CoffeeBean",
@@ -21,6 +22,7 @@ class GoalsSetupRequest(BaseModel):
         },
     )
 
+    user_id: str | None = Field(default=None, min_length=1)
     business_name: str
     competitors_urls: list[str] = Field(..., min_length=1)
     report_frequency: str

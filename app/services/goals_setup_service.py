@@ -19,11 +19,14 @@ class GoalsSetupError(Exception):
 
 
 async def _context_for_goals(payload: GoalsSetupRequest) -> dict:
-    context = await get_latest_business_context_by_name(payload.business_name)
+    context = await get_latest_business_context_by_name(
+        payload.business_name,
+        user_id=payload.user_id,
+    )
     if context:
         return context
 
-    context = await get_latest_business_context()
+    context = await get_latest_business_context(user_id=payload.user_id)
     if context:
         return context
 

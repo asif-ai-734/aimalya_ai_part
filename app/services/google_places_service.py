@@ -8,6 +8,7 @@ import requests
 
 from app.core.config import get_settings
 from app.db.business_context_store import save_business_context
+from app.db.business_store import save_user_businesses
 from app.db.place_store import upsert_place_data
 from app.schemas.business_setup import (
     BusinessInput,
@@ -600,6 +601,7 @@ async def find_nearby_competitors(
 async def fetch_and_save_setup(payload: BusinessSetupRequest) -> dict:
     businesses = payload.businesses
     places: list[dict] = []
+    business_records: list[dict] = []
 
     for business in businesses:
         locations = business.locations or [None]
@@ -607,6 +609,21 @@ async def fetch_and_save_setup(payload: BusinessSetupRequest) -> dict:
             place = await resolve_place(business, location)
             await upsert_place_data(place)
             places.append(place)
+            business_records.append(
+                {
+                    "business_name": business.name,
+                    "business_category": business.category,
+                    "business_address": place.get("formatted_address")
+                    or (location.address_or_city if location else None),
+                    "input_address": location.address_or_city if location else None,
+                    "place_id": place["place_id"],
+                    "place_payload": place,
+                    "raw_input": {
+                        "business": business.model_dump(),
+                        "location": location.model_dump() if location else None,
+                    },
+                }
+            )
 
     if not places:
         raise GooglePlacesError(
@@ -617,7 +634,11 @@ async def fetch_and_save_setup(payload: BusinessSetupRequest) -> dict:
     primary_place = places[0]
     primary_place_id = primary_place["place_id"]
     primary_business = businesses[0]
+    primary_location = primary_business.locations[0]
     primary_business_name = primary_business.name
+    primary_business_address = (
+        primary_place.get("formatted_address") or primary_location.address_or_city
+    )
     primary_business_category = primary_business.category
 
     place_ids = []
@@ -627,18 +648,26 @@ async def fetch_and_save_setup(payload: BusinessSetupRequest) -> dict:
 
     raw_input = payload.model_dump()
     context_id = await save_business_context(
+        user_id=payload.user_id,
         primary_place_id=primary_place_id,
         place_ids=place_ids,
         competitor_place_ids=[],
         business_name=primary_business_name,
+        business_address=primary_business_address,
         business_category=primary_business_category,
         report_frequency=None,
         goals=[],
         raw_input=raw_input,
     )
+    await save_user_businesses(
+        context_id=context_id,
+        user_id=payload.user_id,
+        businesses=business_records,
+    )
 
     return {
         "status": "saved",
+        "user_id": payload.user_id,
         "context_id": context_id,
         "default_place_id": primary_place_id,
         "places": [_summary(place) for place in places],

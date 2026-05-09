@@ -20,8 +20,11 @@ def _to_competitor_card(place: dict) -> dict:
     }
 
 
-async def load_competitors_from_db(place_id: str | None = None) -> list[dict]:
-    context = await get_latest_business_context(place_id)
+async def load_competitors_from_db(
+    place_id: str | None = None,
+    user_id: str | None = None,
+) -> list[dict]:
+    context = await get_latest_business_context(place_id, user_id=user_id)
     if not context:
         return []
 

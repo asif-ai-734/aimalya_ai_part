@@ -2,42 +2,52 @@ import asyncio
 import json
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-from app.core.config import get_settings
+from app.db.database import connect
 
 
-settings = get_settings()
-
-
-def _ensure_db_dir(path: str) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-
-
-def _connect() -> sqlite3.Connection:
-    _ensure_db_dir(settings.DB_PATH)
-    conn = sqlite3.connect(settings.DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    columns = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in columns)
 
 
 def _init_business_context_sync() -> None:
-    with _connect() as conn:
+    with connect() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS business_contexts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
                 primary_place_id TEXT NOT NULL,
                 place_ids TEXT NOT NULL,
                 competitor_place_ids TEXT NOT NULL,
                 business_name TEXT,
+                business_address TEXT,
                 business_category TEXT,
                 report_frequency TEXT,
                 goals TEXT NOT NULL,
                 raw_input TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
+            """
+        )
+        if not _has_column(conn, "business_contexts", "user_id"):
+            conn.execute("ALTER TABLE business_contexts ADD COLUMN user_id TEXT")
+        if not _has_column(conn, "business_contexts", "business_address"):
+            conn.execute(
+                "ALTER TABLE business_contexts ADD COLUMN business_address TEXT"
+            )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_business_contexts_user_created
+            ON business_contexts(user_id, created_at, id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_business_contexts_primary_place
+            ON business_contexts(primary_place_id)
             """
         )
 
@@ -58,30 +68,34 @@ def _json_load(value: str | None, fallback: Any) -> Any:
 
 def _save_business_context_sync(
     *,
+    user_id: str | None,
     primary_place_id: str,
     place_ids: list[str],
     competitor_place_ids: list[str],
     business_name: str | None,
+    business_address: str | None,
     business_category: str | None,
     report_frequency: str | None,
     goals: list[str],
     raw_input: dict,
 ) -> int:
     _init_business_context_sync()
-    with _connect() as conn:
+    with connect() as conn:
         cursor = conn.execute(
             """
             INSERT INTO business_contexts (
-                primary_place_id, place_ids, competitor_place_ids,
-                business_name, business_category, report_frequency,
+                user_id, primary_place_id, place_ids, competitor_place_ids,
+                business_name, business_address, business_category, report_frequency,
                 goals, raw_input, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                user_id,
                 primary_place_id,
                 _json_dump(place_ids),
                 _json_dump(competitor_place_ids),
                 business_name,
+                business_address,
                 business_category,
                 report_frequency,
                 _json_dump(goals),
@@ -94,10 +108,12 @@ def _save_business_context_sync(
 
 async def save_business_context(
     *,
+    user_id: str | None,
     primary_place_id: str,
     place_ids: list[str],
     competitor_place_ids: list[str],
     business_name: str | None,
+    business_address: str | None,
     business_category: str | None,
     report_frequency: str | None,
     goals: list[str],
@@ -105,10 +121,12 @@ async def save_business_context(
 ) -> int:
     return await asyncio.to_thread(
         _save_business_context_sync,
+        user_id=user_id,
         primary_place_id=primary_place_id,
         place_ids=place_ids,
         competitor_place_ids=competitor_place_ids,
         business_name=business_name,
+        business_address=business_address,
         business_category=business_category,
         report_frequency=report_frequency,
         goals=goals,
@@ -146,15 +164,20 @@ def _business_name_matches(context: dict, business_name: str) -> bool:
     return False
 
 
-def _get_latest_business_context_sync(place_id: str | None = None) -> dict | None:
+def _get_latest_business_context_sync(
+    place_id: str | None = None,
+    user_id: str | None = None,
+) -> dict | None:
     _init_business_context_sync()
-    with _connect() as conn:
+    with connect() as conn:
         if place_id:
             rows = conn.execute(
                 """
                 SELECT * FROM business_contexts
+                WHERE (? IS NULL OR user_id = ?)
                 ORDER BY created_at DESC, id DESC
-                """
+                """,
+                (user_id, user_id),
             ).fetchall()
             for row in rows:
                 context = _row_to_context(row)
@@ -168,9 +191,11 @@ def _get_latest_business_context_sync(place_id: str | None = None) -> dict | Non
         row = conn.execute(
             """
             SELECT * FROM business_contexts
+            WHERE (? IS NULL OR user_id = ?)
             ORDER BY created_at DESC, id DESC
             LIMIT 1
-            """
+            """,
+            (user_id, user_id),
         ).fetchone()
 
     return _row_to_context(row) if row else None
@@ -178,20 +203,28 @@ def _get_latest_business_context_sync(place_id: str | None = None) -> dict | Non
 
 async def get_latest_business_context(
     place_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict | None:
-    return await asyncio.to_thread(_get_latest_business_context_sync, place_id)
+    return await asyncio.to_thread(
+        _get_latest_business_context_sync,
+        place_id,
+        user_id,
+    )
 
 
 def _get_latest_business_context_by_name_sync(
     business_name: str,
+    user_id: str | None = None,
 ) -> dict | None:
     _init_business_context_sync()
-    with _connect() as conn:
+    with connect() as conn:
         rows = conn.execute(
             """
             SELECT * FROM business_contexts
+            WHERE (? IS NULL OR user_id = ?)
             ORDER BY created_at DESC, id DESC
-            """
+            """,
+            (user_id, user_id),
         ).fetchall()
 
     for row in rows:
@@ -204,10 +237,12 @@ def _get_latest_business_context_by_name_sync(
 
 async def get_latest_business_context_by_name(
     business_name: str,
+    user_id: str | None = None,
 ) -> dict | None:
     return await asyncio.to_thread(
         _get_latest_business_context_by_name_sync,
         business_name,
+        user_id,
     )
 
 
@@ -228,7 +263,7 @@ def _update_business_context_goals_sync(
     goals_input: dict,
 ) -> dict | None:
     _init_business_context_sync()
-    with _connect() as conn:
+    with connect() as conn:
         row = conn.execute(
             "SELECT * FROM business_contexts WHERE id = ?",
             (context_id,),

@@ -16,6 +16,7 @@ Create `.env`:
 ```
 GEMINI_API_KEY=your_key
 GEMINI_MODEL=your_model
+DB_PATH=app/db/cache.sqlite3
 ```
 
 Run:
@@ -27,7 +28,9 @@ uvicorn app.main:app --reload
 ## Data
 ...
 - Source JSON: `app/db/demo.json`
-- SQLite DB (cache + place data): `app/db/cache.sqlite3`
+- SQLite DB (LLM cache + persistent app data): `app/db/cache.sqlite3`
+- Docker Compose stores production data in a named volume at `/data/reviewiq.sqlite3`
+- Saved businesses are user-scoped through `user_id`
 
 ## Endpoints
 
@@ -35,3 +38,28 @@ uvicorn app.main:app --reload
 - `GET /reviews/analysis`
 - `GET /insights/recommendations`
 - `GET /reports/monthly`
+- `POST /businesses/fetch`
+- `GET /businesses?user_id=user_123`
+- `GET /businesses/user/user_123`
+- `GET /businesses/management?user_id=user_123`
+- `GET /businesses/management/user_123`
+
+Example business setup request:
+
+```json
+{
+  "user_id": "user_123",
+  "businesses": [
+    {
+      "name": "XYZ Food Corner",
+      "category": "restaurant",
+      "locations": [
+        {
+          "google_maps_url": "https://maps.google.com/...",
+          "address_or_city": "Uttara, Dhaka"
+        }
+      ]
+    }
+  ]
+}
+```

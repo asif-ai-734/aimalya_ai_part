@@ -7,13 +7,16 @@ class PlaceDataNotFound(LookupError):
     pass
 
 
-async def load_place_data(place_id: str | None = None):
+async def load_place_data(
+    place_id: str | None = None,
+    user_id: str | None = None,
+):
     if place_id:
         place = await get_place_data(place_id)
         if place:
             return place
 
-    context = await get_latest_business_context(place_id)
+    context = await get_latest_business_context(place_id, user_id=user_id)
     if context:
         place = await get_place_data(context["primary_place_id"])
         if place:
