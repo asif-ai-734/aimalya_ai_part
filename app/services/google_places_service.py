@@ -592,38 +592,46 @@ async def find_nearby_competitors(
         limit=limit,
     )
 
-    competitors = []
-    for place_id in place_ids:
-        competitors.append(await fetch_place_details(place_id))
-    return competitors
+    return list(
+        await asyncio.gather(
+            *(fetch_place_details(place_id) for place_id in place_ids)
+        )
+    )
+
+
+async def _resolve_business_location(
+    business: BusinessInput,
+    location: BusinessLocationInput | None,
+) -> tuple[dict, dict]:
+    place = await resolve_place(business, location)
+    return place, {
+        "business_name": business.name,
+        "business_category": business.category,
+        "business_address": place.get("formatted_address")
+        or (location.address_or_city if location else None),
+        "input_address": location.address_or_city if location else None,
+        "place_id": place["place_id"],
+        "place_payload": place,
+        "raw_input": {
+            "business": business.model_dump(),
+            "location": location.model_dump() if location else None,
+        },
+    }
 
 
 async def fetch_and_save_setup(payload: BusinessSetupRequest) -> dict:
     businesses = payload.businesses
-    places: list[dict] = []
-    business_records: list[dict] = []
+    tasks = [
+        _resolve_business_location(business, location)
+        for business in businesses
+        for location in (business.locations or [None])
+    ]
+    resolved = await asyncio.gather(*tasks)
+    places = [place for place, _ in resolved]
+    business_records = [record for _, record in resolved]
 
-    for business in businesses:
-        locations = business.locations or [None]
-        for location in locations:
-            place = await resolve_place(business, location)
-            await upsert_place_data(place)
-            places.append(place)
-            business_records.append(
-                {
-                    "business_name": business.name,
-                    "business_category": business.category,
-                    "business_address": place.get("formatted_address")
-                    or (location.address_or_city if location else None),
-                    "input_address": location.address_or_city if location else None,
-                    "place_id": place["place_id"],
-                    "place_payload": place,
-                    "raw_input": {
-                        "business": business.model_dump(),
-                        "location": location.model_dump() if location else None,
-                    },
-                }
-            )
+    for place in places:
+        await upsert_place_data(place)
 
     if not places:
         raise GooglePlacesError(
@@ -634,10 +642,12 @@ async def fetch_and_save_setup(payload: BusinessSetupRequest) -> dict:
     primary_place = places[0]
     primary_place_id = primary_place["place_id"]
     primary_business = businesses[0]
-    primary_location = primary_business.locations[0]
+    primary_locations = primary_business.locations or [None]
+    primary_location = primary_locations[0]
     primary_business_name = primary_business.name
     primary_business_address = (
-        primary_place.get("formatted_address") or primary_location.address_or_city
+        primary_place.get("formatted_address")
+        or (primary_location.address_or_city if primary_location else None)
     )
     primary_business_category = primary_business.category
 

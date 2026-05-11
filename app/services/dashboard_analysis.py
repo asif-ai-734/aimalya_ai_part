@@ -1,24 +1,33 @@
 #app.services.dashboard_analysis.py
 
+import asyncio
 from collections import Counter
 from app.services.gemini_client import analyze_review_with_gemini
+
+
+GEMINI_REVIEW_CONCURRENCY = 5
+
+
+async def _analyze_review(review: dict, semaphore: asyncio.Semaphore) -> dict:
+    async with semaphore:
+        return await analyze_review_with_gemini(review.get("text", ""))
 
 
 async def analyze_reviews(reviews: list):
     sentiment_count = {"Positive": 0, "Neutral": 0, "Negative": 0}
     strengths = Counter()
     issues = Counter()
-    analyzed_reviews = []
+    semaphore = asyncio.Semaphore(GEMINI_REVIEW_CONCURRENCY)
+    analyzed_reviews = await asyncio.gather(
+        *(_analyze_review(review, semaphore) for review in reviews)
+    )
 
-    for r in reviews:
-        result = await analyze_review_with_gemini(r["text"])
-
+    for result in analyzed_reviews:
         sentiment = result["sentiment"]
         strengths_phrases = result.get("strengths", [])
         issues_phrases = result.get("issues", [])
 
         sentiment_count[sentiment] += 1
-        analyzed_reviews.append(result)
 
         for s in strengths_phrases:
             strengths[s] += 1

@@ -1,4 +1,6 @@
 #app.routes.competitor_analysis.py
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from app.db.business_context_store import get_latest_business_context
@@ -34,14 +36,15 @@ async def competitor_report(
 
     place_id = matched_business["place_id"]
 
-    place_data = await place_loader.load_place_data(
-        place_id,
-        user_id=user_id,
-    )
-
-    context = await get_latest_business_context(
-        place_id,
-        user_id=user_id,
+    place_data, context = await asyncio.gather(
+        place_loader.load_place_data(
+            place_id,
+            user_id=user_id,
+        ),
+        get_latest_business_context(
+            place_id,
+            user_id=user_id,
+        ),
     )
 
     my = place_data

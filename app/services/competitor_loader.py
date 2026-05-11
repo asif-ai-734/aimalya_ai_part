@@ -1,3 +1,4 @@
+import asyncio
 import requests
 from app.db.business_context_store import get_latest_business_context
 from app.db.place_store import get_place_data
@@ -28,16 +29,20 @@ async def load_competitors_from_db(
     if not context:
         return []
 
-    competitors = []
-    for competitor_place_id in context.get("competitor_place_ids", []):
-        place = await get_place_data(competitor_place_id)
-        if place:
-            competitors.append(_to_competitor_card(place))
+    places = await asyncio.gather(
+        *(
+            get_place_data(competitor_place_id)
+            for competitor_place_id in context.get("competitor_place_ids", [])
+        )
+    )
+    return [_to_competitor_card(place) for place in places if place]
 
-    return competitors
 
-
-def find_competitors_from_place(place_data: dict, radius: int = 1500, limit: int = 5):
+def _find_competitors_from_place_sync(
+    place_data: dict,
+    radius: int = 1500,
+    limit: int = 5,
+):
     # Extract the primary place details from the Google Place Details response.
     result = place_data.get("result", place_data)
 
@@ -87,3 +92,16 @@ def find_competitors_from_place(place_data: dict, radius: int = 1500, limit: int
 
     # Return only the top N.
     return competitors[:limit]
+
+
+async def find_competitors_from_place(
+    place_data: dict,
+    radius: int = 1500,
+    limit: int = 5,
+):
+    return await asyncio.to_thread(
+        _find_competitors_from_place_sync,
+        place_data,
+        radius,
+        limit,
+    )

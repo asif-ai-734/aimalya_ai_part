@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from app.db.business_store import get_user_businesses
@@ -233,11 +234,13 @@ def _build_location_filters(locations: list[dict]) -> list[dict]:
 
 async def build_business_management(user_id: str) -> dict:
     user_businesses = await get_user_businesses(user_id)
-    locations = []
-
-    for business in user_businesses:
-        place = await _place_for_business(business)
-        locations.append(_build_location(business, place))
+    places = await asyncio.gather(
+        *(_place_for_business(business) for business in user_businesses)
+    )
+    locations = [
+        _build_location(business, place)
+        for business, place in zip(user_businesses, places)
+    ]
 
     grouped: dict[str, dict] = {}
     for location in locations:

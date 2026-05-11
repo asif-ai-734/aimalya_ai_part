@@ -1,3 +1,5 @@
+import asyncio
+
 from app.db.business_context_store import (
     get_latest_business_context,
     get_latest_business_context_by_name,
@@ -36,6 +38,34 @@ async def _context_for_goals(payload: GoalsSetupRequest) -> dict:
     )
 
 
+async def _resolve_competitor_place(competitor_url: str) -> dict:
+    try:
+        competitor = await resolve_place_from_url_or_text(competitor_url)
+        place_id = competitor.get("place_id")
+        if not place_id:
+            raise GoalsSetupError(
+                "Google Places did not return a place_id.",
+                status_code=502,
+            )
+        return {
+            "competitor_url": competitor_url,
+            "place_id": place_id,
+            "place": competitor,
+            "error": None,
+        }
+    except (GooglePlacesError, GoalsSetupError) as exc:
+        return {
+            "competitor_url": competitor_url,
+            "place_id": None,
+            "place": None,
+            "error": {
+                "competitor_url": competitor_url,
+                "status_code": getattr(exc, "status_code", 400),
+                "error": str(exc),
+            },
+        }
+
+
 async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
     context = await _context_for_goals(payload)
     own_place_ids = set(context.get("place_ids", []))
@@ -43,30 +73,27 @@ async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
     competitor_places: list[dict] = []
     competitor_errors: list[dict] = []
 
-    for competitor_url in payload.competitors_urls:
-        try:
-            competitor = await resolve_place_from_url_or_text(competitor_url)
-            place_id = competitor.get("place_id")
-            if not place_id:
-                raise GoalsSetupError(
-                    "Google Places did not return a place_id.",
-                    status_code=502,
-                )
-            if place_id in own_place_ids or place_id in competitor_place_ids:
-                continue
+    resolved_competitors = await asyncio.gather(
+        *(
+            _resolve_competitor_place(competitor_url)
+            for competitor_url in payload.competitors_urls
+        )
+    )
 
-            await upsert_place_data(competitor)
-            competitor_place_ids.append(place_id)
-            competitor_places.append(competitor)
-        except (GooglePlacesError, GoalsSetupError) as exc:
-            status_code = getattr(exc, "status_code", 400)
-            competitor_errors.append(
-                {
-                    "competitor_url": competitor_url,
-                    "status_code": status_code,
-                    "error": str(exc),
-                }
-            )
+    for resolved in resolved_competitors:
+        if resolved["error"]:
+            competitor_errors.append(resolved["error"])
+            continue
+
+        place_id = resolved["place_id"]
+        if place_id in own_place_ids or place_id in competitor_place_ids:
+            continue
+
+        competitor_place_ids.append(place_id)
+        competitor_places.append(resolved["place"])
+
+    for place in competitor_places:
+        await upsert_place_data(place)
 
     if not competitor_place_ids:
         error_details = "; ".join(

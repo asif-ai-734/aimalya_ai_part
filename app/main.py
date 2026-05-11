@@ -55,5 +55,5 @@ async def place_data_not_found_handler(
     )
 
 @app.get("/")
-def root():
+async def root():
     return {"status": "ReviewIQ backend is running"}

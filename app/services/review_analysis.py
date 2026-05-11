@@ -1,7 +1,16 @@
+import asyncio
 from statistics import mean
 from collections import Counter
 from datetime import datetime
 from app.services.gemini_client import analyze_review_with_gemini
+
+
+GEMINI_REVIEW_CONCURRENCY = 5
+
+
+async def _analyze_review(review: dict, semaphore: asyncio.Semaphore) -> dict:
+    async with semaphore:
+        return await analyze_review_with_gemini(review.get("text", ""))
 
 
 async def build_reviews_analysis_page(reviews: list):
@@ -10,11 +19,13 @@ async def build_reviews_analysis_page(reviews: list):
     emotion_counter = Counter()
     keyword_counter = Counter()
     analyzed_reviews = []
+    semaphore = asyncio.Semaphore(GEMINI_REVIEW_CONCURRENCY)
+    ai_results = await asyncio.gather(
+        *(_analyze_review(review, semaphore) for review in reviews)
+    )
 
-    for r in reviews:
+    for r, ai in zip(reviews, ai_results):
         ratings.append(r["rating"])
-
-        ai = await analyze_review_with_gemini(r["text"])
 
         sentiment_counter[ai["sentiment"]] += 1
 

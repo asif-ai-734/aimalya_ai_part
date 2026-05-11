@@ -8,7 +8,7 @@ import re
 
 settings = get_settings()
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
-PROMPT_VERSION = "monthly_report_v1"
+PROMPT_VERSION = "monthly_report_v2"
 
 
 def _extract_json(text: str):
@@ -30,7 +30,7 @@ async def generate_monthly_ai_summary(report_input: dict):
         return cached
 
     prompt = f"""
-You are a senior business analyst preparing a monthly business report.
+You are a senior business analyst preparing a business performance report.
 
 Return STRICT JSON ONLY:
 
@@ -46,7 +46,7 @@ Return STRICT JSON ONLY:
   "action_plan": ["string"]
 }}
 
-Monthly data:
+Report data:
 {json.dumps(report_input, indent=2)}
 """
 
