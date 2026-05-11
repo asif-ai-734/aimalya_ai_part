@@ -10,7 +10,7 @@ from app.services import (
     criteria_service,
 )
 
-from app.db.business_store import get_user_businesses
+from app.services.business_lookup import find_user_business
 
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -22,33 +22,11 @@ async def overview_dashboard(
     business_name: str,
     address: str | None = None,
 ):
-    businesses = await get_user_businesses(user_id)
-
-    matched_business = None
-
-    for business in businesses:
-        name_matches = (
-            business.get("business_name", "").strip().casefold()
-            == business_name.strip().casefold()
-        )
-
-        address_matches = True
-
-        if address:
-            saved_address = (
-                business.get("business_address")
-                or business.get("input_address")
-                or ""
-            )
-
-            address_matches = (
-                address.strip().casefold()
-                in saved_address.strip().casefold()
-            )
-
-        if name_matches and address_matches:
-            matched_business = business
-            break
+    matched_business = await find_user_business(
+        user_id=user_id,
+        business_name=business_name,
+        address=address,
+    )
 
     if not matched_business:
         raise HTTPException(
