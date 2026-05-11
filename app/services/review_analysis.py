@@ -16,8 +16,6 @@ async def _analyze_review(review: dict, semaphore: asyncio.Semaphore) -> dict:
 async def build_reviews_analysis_page(reviews: list):
     ratings = []
     sentiment_counter = Counter()
-    emotion_counter = Counter()
-    keyword_counter = Counter()
     analyzed_reviews = []
     semaphore = asyncio.Semaphore(GEMINI_REVIEW_CONCURRENCY)
     ai_results = await asyncio.gather(
@@ -28,12 +26,6 @@ async def build_reviews_analysis_page(reviews: list):
         ratings.append(r["rating"])
 
         sentiment_counter[ai["sentiment"]] += 1
-
-        for e in ai.get("emotions", []):
-            emotion_counter[e] += 1
-
-        for k in ai.get("keywords", []):
-            keyword_counter[k.lower()] += 1
 
         analyzed_reviews.append({
             "author": r["author_name"],
@@ -46,7 +38,6 @@ async def build_reviews_analysis_page(reviews: list):
             "emotions": ai["emotions"],
             "strengths": ai["strengths"],
             "issues": ai["issues"],
-            "keywords": ai["keywords"],
             "criteria_scores": ai["criteria_scores"],
 
             # future
@@ -58,13 +49,9 @@ async def build_reviews_analysis_page(reviews: list):
     return {
         "stats": {
             "total_reviews": len(reviews),
-            "avg_rating": avg_rating,
-            "sentiments": sentiment_counter,
-            "emotions": emotion_counter
+            "avg_ratings": avg_rating,
+            "Positive_sentiments": sentiment_counter["Positive"],
+            "negetive_sentiments": sentiment_counter["Negative"],
         },
-        "top_keywords": [
-            {"keyword": k, "mentions": v}
-            for k, v in keyword_counter.most_common(10)
-        ],
         "reviews": analyzed_reviews
     }
