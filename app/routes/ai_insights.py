@@ -19,34 +19,6 @@ from app.services.business_lookup import find_user_business
 router = APIRouter(prefix="/insights", tags=["AI Insights"])
 
 
-ACTIONABLE_RECOMMENDATION_STYLES = [
-    {
-        "type": "staff_training",
-        "title": "Staff Training",
-        "description": (
-            "Improve guest handling, response quality, and service consistency "
-            "through focused staff coaching."
-        ),
-    },
-    {
-        "type": "operations_consulting",
-        "title": "Operations Consulting",
-        "description": (
-            "Review daily workflows, bottlenecks, and service processes to "
-            "improve speed and customer experience."
-        ),
-    },
-    {
-        "type": "performance_program",
-        "title": "Performance Program",
-        "description": (
-            "Track review trends, team performance, and customer satisfaction "
-            "with a structured improvement program."
-        ),
-    },
-]
-
-
 def _business_picture(place_data: dict) -> dict | None:
     photos = place_data.get("photos") or []
     if not photos:
@@ -128,5 +100,4 @@ async def ai_insights(
         "business_picture": _business_picture(place_data),
         "performance_by_category": performance_by_category,
         "business_goals": business_goals,
-        "actionable_recommendation_styles": ACTIONABLE_RECOMMENDATION_STYLES,
     }
