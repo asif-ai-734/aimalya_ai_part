@@ -19,6 +19,48 @@ from app.services.business_lookup import find_user_business
 router = APIRouter(prefix="/insights", tags=["AI Insights"])
 
 
+ACTIONABLE_RECOMMENDATION_STYLES = [
+    {
+        "type": "staff_training",
+        "title": "Staff Training",
+        "description": (
+            "Improve guest handling, response quality, and service consistency "
+            "through focused staff coaching."
+        ),
+    },
+    {
+        "type": "operations_consulting",
+        "title": "Operations Consulting",
+        "description": (
+            "Review daily workflows, bottlenecks, and service processes to "
+            "improve speed and customer experience."
+        ),
+    },
+    {
+        "type": "performance_program",
+        "title": "Performance Program",
+        "description": (
+            "Track review trends, team performance, and customer satisfaction "
+            "with a structured improvement program."
+        ),
+    },
+]
+
+
+def _business_picture(place_data: dict) -> dict | None:
+    photos = place_data.get("photos") or []
+    if not photos:
+        return None
+
+    photo = photos[0]
+    return {
+        "photo_reference": photo.get("photo_reference"),
+        "width": photo.get("width"),
+        "height": photo.get("height"),
+        "html_attributions": photo.get("html_attributions") or [],
+    }
+
+
 @router.get("/recommendations")
 async def ai_insights(
     user_id: str,
@@ -70,90 +112,21 @@ async def ai_insights(
     )
 
     business_goals = context.get("goals", []) if context else []
-    report_frequency = context.get("report_frequency") if context else None
 
     insights_input = {
         "overview": overview,
         "performance_by_category": performance_by_category,
-        "emerging_trends": emerging,
-        "declining_areas": declining,
+        "detected_emerging_trends": emerging,
+        "detected_declining_areas": declining,
         "business_goals": business_goals,
-        "report_frequency": report_frequency,
     }
 
     ai_insights = await ai_insights_service.generate_ai_insights(insights_input)
 
     return {
         **ai_insights,
+        "business_picture": _business_picture(place_data),
         "performance_by_category": performance_by_category,
-        "emerging_trends": emerging,
-        "declining_areas": declining,
         "business_goals": business_goals,
-        "report_frequency": report_frequency,
+        "actionable_recommendation_styles": ACTIONABLE_RECOMMENDATION_STYLES,
     }
-
-
-
-
-# from fastapi import APIRouter
-# from app.db.business_context_store import get_latest_business_context
-# from app.services import (
-#     place_loader,
-#     overview_service,
-#     criteria_service,
-#     dashboard_analysis,
-#     insights_aggregation_service,
-#     ai_insights_service
-# )
-
-# router = APIRouter(prefix="/insights", tags=["AI Insights"])
-
-
-# @router.get("/recommendations")
-# async def ai_insights(
-#     place_id: str | None = None,
-#     user_id: str | None = None,
-# ):
-#     place_data = await place_loader.load_place_data(place_id, user_id=user_id)
-#     context = await get_latest_business_context(place_id, user_id=user_id)
-#     reviews = place_data.get("reviews", [])
-
-#     analysis = await dashboard_analysis.analyze_reviews(reviews)
-
-#     overview = overview_service.build_overview(place_data, analysis)
-
-#     raw_criteria = criteria_service.aggregate_criteria_scores(
-#         analysis["reviews_analysis"]
-#     )
-
-#     # 🔹 Performance by Category
-#     performance_by_category = criteria_service.normalize_criteria_scores(
-#         raw_criteria
-#     )
-
-#     emerging, declining = insights_aggregation_service.extract_emerging_and_declining(
-#     reviews,
-#     analysis["reviews_analysis"]
-#     )
-#     business_goals = context.get("goals", []) if context else []
-#     report_frequency = context.get("report_frequency") if context else None
-
-#     insights_input = {
-#         "overview": overview,
-#         "performance_by_category": performance_by_category,
-#         "emerging_trends": emerging,
-#         "declining_areas": declining,
-#         "business_goals": business_goals,
-#         "report_frequency": report_frequency,
-#     }
-
-#     ai_insights = await ai_insights_service.generate_ai_insights(insights_input)
-
-#     return {
-#         **ai_insights,
-#         "performance_by_category": performance_by_category,
-#         "emerging_trends": emerging,
-#         "declining_areas": declining,
-#         "business_goals": business_goals,
-#         "report_frequency": report_frequency,
-#     }

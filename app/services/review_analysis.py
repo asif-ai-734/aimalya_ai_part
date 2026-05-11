@@ -37,11 +37,6 @@ async def build_reviews_analysis_page(reviews: list):
             "sentiment": ai["sentiment"],
             "emotions": ai["emotions"],
             "strengths": ai["strengths"],
-            "issues": ai["issues"],
-            "criteria_scores": ai["criteria_scores"],
-
-            # future
-            "replied": False
         })
 
     avg_rating = round(mean(ratings), 1) if ratings else 0.0

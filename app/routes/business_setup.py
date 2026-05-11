@@ -19,16 +19,16 @@ async def fetch_business_data(payload: BusinessSetupRequest):
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-# @router.get("")
-# async def list_businesses(user_id: str):
-#     businesses = await get_user_businesses(user_id)
-#     return {"user_id": user_id, "businesses": businesses}
+@router.get("")
+async def list_businesses(user_id: str):
+    businesses = await get_user_businesses(user_id)
+    return {"user_id": user_id, "businesses": businesses}
 
 
-# @router.get("/user/{user_id}")
-# async def list_businesses_for_user(user_id: str):
-#     businesses = await get_user_businesses(user_id)
-#     return {"user_id": user_id, "businesses": businesses}
+@router.get("/user/{user_id}")
+async def list_businesses_for_user(user_id: str):
+    businesses = await get_user_businesses(user_id)
+    return {"user_id": user_id, "businesses": businesses}
 
 @router.get("/names")
 async def list_business_names(user_id: str):
