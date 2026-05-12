@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from app.db.actionable_recommendation_store import init_actionable_recommendation_db
 from app.db.business_context_store import init_business_context_db
 from app.db.business_store import init_user_business_db
 from app.db.cache import init_cache
@@ -41,6 +42,7 @@ async def init_databases():
     await init_place_db()
     await init_business_context_db()
     await init_user_business_db()
+    await init_actionable_recommendation_db()
 
 
 

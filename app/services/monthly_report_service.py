@@ -12,6 +12,8 @@ SUPPORTED_REPORT_FREQUENCIES = {
     "yearly",
 }
 
+TREND_BUCKET_TWO_DAY = "two-day"
+
 
 def normalize_report_frequency(report_frequency: str) -> str:
     normalized = report_frequency.strip().casefold().replace("_", "-")
@@ -81,6 +83,9 @@ def _period_start(
 ) -> date:
     if frequency == "daily":
         return value
+    if frequency == TREND_BUCKET_TWO_DAY:
+        days_since_start = (value - report_start).days
+        return report_start + timedelta(days=(days_since_start // 2) * 2)
     if frequency == "weekly":
         days_since_start = (value - report_start).days
         return report_start + timedelta(days=(days_since_start // 7) * 7)
@@ -94,6 +99,8 @@ def _period_start(
 def _next_period_start(value: date, frequency: str) -> date:
     if frequency == "daily":
         return value + timedelta(days=1)
+    if frequency == TREND_BUCKET_TWO_DAY:
+        return value + timedelta(days=2)
     if frequency == "weekly":
         return value + timedelta(days=7)
     if frequency == "monthly":
@@ -107,19 +114,35 @@ def _period_label(
     value: date,
     *,
     frequency: str,
+    report_start: date,
     report_end: date,
 ) -> str:
     if frequency == "daily":
         return value.isoformat()
+    if frequency == TREND_BUCKET_TWO_DAY:
+        day_start = (value - report_start).days + 1
+        period_end = min(value + timedelta(days=1), report_end)
+        day_end = (period_end - report_start).days + 1
+        if day_start == day_end:
+            return f"Day {day_start}"
+        return f"Day {day_start}-{day_end}"
     if frequency == "weekly":
-        period_end = min(value + timedelta(days=6), report_end)
-        return f"{value.isoformat()} to {period_end.isoformat()}"
+        week_number = ((value - report_start).days // 7) + 1
+        return f"Week {week_number}"
     if frequency == "monthly":
         return value.strftime("%B %Y")
     if frequency == "quarterly":
         quarter = ((value.month - 1) // 3) + 1
         return f"Q{quarter} {value.year}"
     return str(value.year)
+
+
+def _trend_bucket_frequency(report_frequency: str) -> str:
+    if report_frequency == "monthly":
+        return "weekly"
+    if report_frequency == "weekly":
+        return TREND_BUCKET_TWO_DAY
+    return report_frequency
 
 
 def _empty_period_buckets(
@@ -159,6 +182,8 @@ def _period_buckets(
     for review in reviews:
         review_date = _review_date(review)
         if not review_date:
+            continue
+        if review_date < start_date or review_date > end_date:
             continue
 
         period = _period_start(
@@ -220,9 +245,10 @@ def build_monthly_report(
 
     total_reviews = len(reviews)
     avg_rating = _average_rating(reviews)
-    period_buckets = _period_buckets(
+    trend_frequency = _trend_bucket_frequency(report_frequency)
+    trend_buckets = _period_buckets(
         reviews,
-        frequency=report_frequency,
+        frequency=trend_frequency,
         start_date=start_date,
         end_date=end_date,
     )
@@ -268,23 +294,25 @@ def build_monthly_report(
             {
                 "period": _period_label(
                     period,
-                    frequency=report_frequency,
+                    frequency=trend_frequency,
+                    report_start=start_date,
                     report_end=end_date,
                 ),
                 "count": len(period_reviews),
             }
-            for period, period_reviews in period_buckets.items()
+            for period, period_reviews in trend_buckets.items()
         ],
         "rating_trend": [
             {
                 "period": _period_label(
                     period,
-                    frequency=report_frequency,
+                    frequency=trend_frequency,
+                    report_start=start_date,
                     report_end=end_date,
                 ),
                 "rating": _average_rating(period_reviews, avg_rating),
             }
-            for period, period_reviews in period_buckets.items()
+            for period, period_reviews in trend_buckets.items()
         ],
 
         "sentiment_breakdown": sentiment_breakdown,
