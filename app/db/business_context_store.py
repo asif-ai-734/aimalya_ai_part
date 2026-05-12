@@ -258,7 +258,6 @@ def _update_business_context_goals_sync(
     *,
     context_id: int,
     competitor_place_ids: list[str],
-    report_frequency: str,
     goals: list[str],
     goals_input: dict,
 ) -> dict | None:
@@ -281,14 +280,12 @@ def _update_business_context_goals_sync(
             """
             UPDATE business_contexts
             SET competitor_place_ids = ?,
-                report_frequency = ?,
                 goals = ?,
                 raw_input = ?
             WHERE id = ?
             """,
             (
                 _json_dump(competitor_place_ids),
-                report_frequency,
                 _json_dump(goals),
                 _json_dump(merged_raw_input),
                 context_id,
@@ -307,7 +304,6 @@ async def update_business_context_goals(
     *,
     context_id: int,
     competitor_place_ids: list[str],
-    report_frequency: str,
     goals: list[str],
     goals_input: dict,
 ) -> dict | None:
@@ -315,7 +311,6 @@ async def update_business_context_goals(
         _update_business_context_goals_sync,
         context_id=context_id,
         competitor_place_ids=competitor_place_ids,
-        report_frequency=report_frequency,
         goals=goals,
         goals_input=goals_input,
     )

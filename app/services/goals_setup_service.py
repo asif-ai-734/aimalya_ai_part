@@ -1,3 +1,137 @@
+# import asyncio
+
+# from app.db.business_context_store import (
+#     get_latest_business_context,
+#     get_latest_business_context_by_name,
+#     update_business_context_goals,
+# )
+# from app.db.place_store import upsert_place_data
+# from app.schemas.goals_set_up_py import GoalsSetupRequest
+# from app.services.google_places_service import (
+#     GooglePlacesError,
+#     resolve_place_from_url_or_text,
+#     summarize_place,
+# )
+
+
+# class GoalsSetupError(Exception):
+#     def __init__(self, message: str, status_code: int = 400):
+#         super().__init__(message)
+#         self.status_code = status_code
+
+
+# async def _context_for_goals(payload: GoalsSetupRequest) -> dict:
+#     context = await get_latest_business_context_by_name(
+#         payload.business_name,
+#         user_id=payload.user_id,
+#     )
+#     if context:
+#         return context
+
+#     context = await get_latest_business_context(user_id=payload.user_id)
+#     if context:
+#         return context
+
+#     raise GoalsSetupError(
+#         "Submit POST /businesses/fetch before setting goals.",
+#         status_code=404,
+#     )
+
+
+# async def _resolve_competitor_place(competitor_url: str) -> dict:
+#     try:
+#         competitor = await resolve_place_from_url_or_text(competitor_url)
+#         place_id = competitor.get("place_id")
+#         if not place_id:
+#             raise GoalsSetupError(
+#                 "Google Places did not return a place_id.",
+#                 status_code=502,
+#             )
+#         return {
+#             "competitor_url": competitor_url,
+#             "place_id": place_id,
+#             "place": competitor,
+#             "error": None,
+#         }
+#     except (GooglePlacesError, GoalsSetupError) as exc:
+#         return {
+#             "competitor_url": competitor_url,
+#             "place_id": None,
+#             "place": None,
+#             "error": {
+#                 "competitor_url": competitor_url,
+#                 "status_code": getattr(exc, "status_code", 400),
+#                 "error": str(exc),
+#             },
+#         }
+
+
+# async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
+#     context = await _context_for_goals(payload)
+#     own_place_ids = set(context.get("place_ids", []))
+#     competitor_place_ids: list[str] = []
+#     competitor_places: list[dict] = []
+#     competitor_errors: list[dict] = []
+
+#     resolved_competitors = await asyncio.gather(
+#         *(
+#             _resolve_competitor_place(competitor_url)
+#             for competitor_url in payload.competitors_urls
+#         )
+#     )
+
+#     for resolved in resolved_competitors:
+#         if resolved["error"]:
+#             competitor_errors.append(resolved["error"])
+#             continue
+
+#         place_id = resolved["place_id"]
+#         if place_id in own_place_ids or place_id in competitor_place_ids:
+#             continue
+
+#         competitor_place_ids.append(place_id)
+#         competitor_places.append(resolved["place"])
+
+#     for place in competitor_places:
+#         await upsert_place_data(place)
+
+#     if not competitor_place_ids:
+#         error_details = "; ".join(
+#             f"{item['competitor_url']}: {item['error']}"
+#             for item in competitor_errors
+#         )
+#         message = "No competitor places could be fetched from competitors_urls."
+#         if error_details:
+#             message = f"{message} {error_details}"
+#         raise GoalsSetupError(
+#             message,
+#             status_code=400,
+#         )
+
+#     updated_context = await update_business_context_goals(
+#         context_id=context["id"],
+#         competitor_place_ids=competitor_place_ids,
+#         report_frequency=payload.report_frequency,
+#         goals=payload.goals,
+#         goals_input=payload.model_dump(),
+#     )
+#     if not updated_context:
+#         raise GoalsSetupError(
+#             "Could not update the saved business context.",
+#             status_code=500,
+#         )
+
+#     return {
+#         "status": "saved",
+#         "context_id": updated_context["id"],
+#         "business_name": updated_context.get("business_name"),
+#         "report_frequency": updated_context.get("report_frequency"),
+#         "goals": updated_context.get("goals", []),
+#         "competitors": [summarize_place(place) for place in competitor_places],
+#         "competitor_errors": competitor_errors,
+#     }
+
+
 import asyncio
 
 from app.db.business_context_store import (
@@ -20,20 +154,23 @@ class GoalsSetupError(Exception):
         self.status_code = status_code
 
 
-async def _context_for_goals(payload: GoalsSetupRequest) -> dict:
+async def _context_for_business(
+    business_name: str,
+    user_id: str | None = None,
+) -> dict:
     context = await get_latest_business_context_by_name(
-        payload.business_name,
-        user_id=payload.user_id,
+        business_name,
+        user_id=user_id,
     )
     if context:
         return context
 
-    context = await get_latest_business_context(user_id=payload.user_id)
+    context = await get_latest_business_context(user_id=user_id)
     if context:
         return context
 
     raise GoalsSetupError(
-        "Submit POST /businesses/fetch before setting goals.",
+        f"Submit POST /businesses/fetch before setting goals for {business_name}.",
         status_code=404,
     )
 
@@ -47,12 +184,14 @@ async def _resolve_competitor_place(competitor_url: str) -> dict:
                 "Google Places did not return a place_id.",
                 status_code=502,
             )
+
         return {
             "competitor_url": competitor_url,
             "place_id": place_id,
             "place": competitor,
             "error": None,
         }
+
     except (GooglePlacesError, GoalsSetupError) as exc:
         return {
             "competitor_url": competitor_url,
@@ -66,8 +205,12 @@ async def _resolve_competitor_place(competitor_url: str) -> dict:
         }
 
 
-async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
-    context = await _context_for_goals(payload)
+async def _save_single_business_goals(payload: GoalsSetupRequest, business) -> dict:
+    context = await _context_for_business(
+        business.business_name,
+        user_id=payload.user_id,
+    )
+
     own_place_ids = set(context.get("place_ids", []))
     competitor_place_ids: list[str] = []
     competitor_places: list[dict] = []
@@ -76,7 +219,7 @@ async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
     resolved_competitors = await asyncio.gather(
         *(
             _resolve_competitor_place(competitor_url)
-            for competitor_url in payload.competitors_urls
+            for competitor_url in business.competitors_urls
         )
     )
 
@@ -86,6 +229,7 @@ async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
             continue
 
         place_id = resolved["place_id"]
+
         if place_id in own_place_ids or place_id in competitor_place_ids:
             continue
 
@@ -100,24 +244,27 @@ async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
             f"{item['competitor_url']}: {item['error']}"
             for item in competitor_errors
         )
-        message = "No competitor places could be fetched from competitors_urls."
+
+        message = (
+            f"No competitor places could be fetched from competitors_urls "
+            f"for {business.business_name}."
+        )
+
         if error_details:
             message = f"{message} {error_details}"
-        raise GoalsSetupError(
-            message,
-            status_code=400,
-        )
+
+        raise GoalsSetupError(message, status_code=400)
 
     updated_context = await update_business_context_goals(
         context_id=context["id"],
         competitor_place_ids=competitor_place_ids,
-        report_frequency=payload.report_frequency,
-        goals=payload.goals,
-        goals_input=payload.model_dump(),
+        goals=business.goals,
+        goals_input=business.model_dump(),
     )
+
     if not updated_context:
         raise GoalsSetupError(
-            "Could not update the saved business context.",
+            f"Could not update the saved business context for {business.business_name}.",
             status_code=500,
         )
 
@@ -125,8 +272,21 @@ async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
         "status": "saved",
         "context_id": updated_context["id"],
         "business_name": updated_context.get("business_name"),
-        "report_frequency": updated_context.get("report_frequency"),
         "goals": updated_context.get("goals", []),
         "competitors": [summarize_place(place) for place in competitor_places],
         "competitor_errors": competitor_errors,
+    }
+
+
+async def fetch_and_save_goals_setup(payload: GoalsSetupRequest) -> dict:
+    results = []
+
+    for business in payload.businesses:
+        result = await _save_single_business_goals(payload, business)
+        results.append(result)
+
+    return {
+        "status": "saved",
+        "user_id": payload.user_id,
+        "businesses": results,
     }
