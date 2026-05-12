@@ -1,4 +1,6 @@
 import asyncio
+from collections import Counter
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.db.business_store import get_user_businesses
@@ -28,6 +30,10 @@ def _as_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _normalize_text(value: Any) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
 
 
 def _weighted_rating(ratings: list[tuple[float | None, int]]) -> float:
@@ -126,6 +132,27 @@ def _recent_reviews(place: dict, *, limit: int = 5) -> list[dict]:
     ]
 
 
+def _all_reviews(place: dict) -> list[dict]:
+    return _recent_reviews(
+        place,
+        limit=len(place.get("reviews") or []),
+    )
+
+
+def _owner_name_from_business(business: dict) -> str | None:
+    raw_input = business.get("raw_input") or {}
+    raw_business = raw_input.get("business") or {}
+
+    return _first_truthy(
+        business.get("owner_name"),
+        raw_input.get("owner_name"),
+        raw_input.get("business_owner_name"),
+        raw_input.get("user_name"),
+        raw_business.get("owner_name"),
+        raw_business.get("business_owner_name"),
+    )
+
+
 async def _place_for_business(business: dict) -> dict:
     place_id = business.get("place_id")
     place = await get_place_data(place_id) if place_id else None
@@ -177,6 +204,7 @@ def _build_location(business: dict, place: dict) -> dict:
             else None
         ),
         "recent_reviews": _recent_reviews(place),
+        "all_reviews": _all_reviews(place),
         "created_at": business.get("created_at"),
         "updated_at": business.get("updated_at"),
     }
@@ -188,51 +216,73 @@ def _business_key(location: dict) -> str:
     return f"{name}|{category}"
 
 
-def _build_summary_cards(summary: dict) -> list[dict]:
-    return [
-        {
-            "key": "total_businesses",
-            "label": "Total Businesses",
-            "value": summary["total_businesses"],
-            "change": None,
-            "change_label": "vs last month",
-        },
-        {
-            "key": "total_locations",
-            "label": "Total Locations",
-            "value": summary["total_locations"],
-            "subtitle": "used for business",
-        },
-        {
-            "key": "avg_rating",
-            "label": "Avg Rating",
-            "value": summary["avg_rating"],
-            "rating_stars": _rating_stars(summary["avg_rating"]),
-        },
-        {
-            "key": "total_reviews",
-            "label": "Total Reviews",
-            "value": summary["total_reviews"],
-            "change": None,
-            "change_label": "vs last month",
-        },
-    ]
-
-
-def _build_location_filters(locations: list[dict]) -> list[dict]:
-    filters = [{"label": "All locations", "value": "all"}]
-    filters.extend(
-        {
-            "label": location.get("address") or location.get("google_name"),
-            "value": location.get("place_id"),
-        }
-        for location in locations
-        if location.get("place_id")
+def _business_matches_name(business: dict, business_name: str) -> bool:
+    return _normalize_text(business.get("business_name")) == _normalize_text(
+        business_name
     )
-    return filters
 
 
-async def build_business_management(user_id: str) -> dict:
+def _review_datetime(review: dict) -> datetime | None:
+    timestamp = review.get("time")
+    if timestamp is None:
+        return None
+
+    try:
+        return datetime.fromtimestamp(int(timestamp))
+    except (OSError, OverflowError, TypeError, ValueError):
+        return None
+
+
+def _review_sentiment(review: dict) -> str:
+    rating = _as_float(review.get("rating"))
+    if rating is None:
+        return "neutral"
+    if rating >= 4:
+        return "positive"
+    if rating <= 2:
+        return "negative"
+    return "neutral"
+
+
+def _percent(count: int, total: int) -> int:
+    if not total:
+        return 0
+    return round((count / total) * 100)
+
+
+def _sentiment_analytics(locations: list[dict]) -> dict:
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    recent_reviews = []
+
+    for location in locations:
+        for review in location.get("all_reviews", []):
+            review_datetime = _review_datetime(review)
+            if review_datetime and review_datetime >= cutoff:
+                recent_reviews.append(review)
+
+    sentiment_counter = Counter(_review_sentiment(review) for review in recent_reviews)
+    total = len(recent_reviews)
+
+    return {
+        "period": "last_30_days",
+        "reviews_analyzed": total,
+        "avg_sentiment_analysis": {
+            "positive": f"{_percent(sentiment_counter['positive'], total)}%",
+            "neutral": f"{_percent(sentiment_counter['neutral'], total)}%",
+            "negative": f"{_percent(sentiment_counter['negative'], total)}%",
+        },
+        "positive_review_percentage": _percent(
+            sentiment_counter["positive"],
+            total,
+        ),
+        "negative_review_percentage": _percent(
+            sentiment_counter["negative"],
+            total,
+        ),
+    }
+
+
+async def _build_business_groups(user_id: str) -> tuple[list[dict], list[dict]]:
     user_businesses = await get_user_businesses(user_id)
     places = await asyncio.gather(
         *(_place_for_business(business) for business in user_businesses)
@@ -243,7 +293,7 @@ async def build_business_management(user_id: str) -> dict:
     ]
 
     grouped: dict[str, dict] = {}
-    for location in locations:
+    for business, location in zip(user_businesses, locations):
         key = _business_key(location)
         group = grouped.setdefault(
             key,
@@ -253,11 +303,25 @@ async def build_business_management(user_id: str) -> dict:
                 "business_name": location.get("business_name"),
                 "category": location.get("category"),
                 "owner_id": user_id,
-                "owner_name": None,
+                "owner_name": _owner_name_from_business(business),
+                "created_at": location.get("created_at"),
+                "updated_at": location.get("updated_at"),
                 "locations": [],
                 "_ratings": [],
             },
         )
+        if not group.get("owner_name"):
+            group["owner_name"] = _owner_name_from_business(business)
+        if location.get("created_at") and (
+            not group.get("created_at")
+            or location["created_at"] < group["created_at"]
+        ):
+            group["created_at"] = location["created_at"]
+        if location.get("updated_at") and (
+            not group.get("updated_at")
+            or location["updated_at"] > group["updated_at"]
+        ):
+            group["updated_at"] = location["updated_at"]
         group["locations"].append(location)
         group["_ratings"].append((location.get("rating"), location.get("reviews", 0)))
 
@@ -284,6 +348,8 @@ async def build_business_management(user_id: str) -> dict:
                 "category": group["category"],
                 "owner_id": group["owner_id"],
                 "owner_name": group["owner_name"],
+                "account_created": group.get("created_at"),
+                "last_active": group.get("updated_at"),
                 "status": _group_status(group_locations),
                 "location_count": len(group_locations),
                 "reviews": reviews,
@@ -326,23 +392,88 @@ async def build_business_management(user_id: str) -> dict:
             }
         )
 
+    return businesses, locations
+
+
+async def build_business_management(user_id: str) -> dict:
+    businesses, locations = await _build_business_groups(user_id)
     total_reviews = sum(location.get("reviews", 0) for location in locations)
     avg_rating = _weighted_rating(
         [(location.get("rating"), location.get("reviews", 0)) for location in locations]
     )
-    summary = {
-        "total_businesses": len(businesses),
-        "total_locations": len(locations),
-        "avg_rating": avg_rating,
-        "total_reviews": total_reviews,
-    }
 
     return {
         "user_id": user_id,
-        "summary": summary,
-        "summary_cards": _build_summary_cards(summary),
-        "filters": {"locations": _build_location_filters(locations)},
-        "businesses": businesses,
-        "locations": locations,
-        "trend_note": "Monthly comparison values are null because historical snapshots are not stored yet.",
+        "total_business": len(businesses),
+        "total_location": len(locations),
+        "avg_rating": avg_rating,
+        "total_reviews": total_reviews,
+        "businesses": [
+            {
+                "business_name": business.get("business_name"),
+                "category": business.get("category"),
+                "owner_name": business.get("owner_name"),
+                "location_count": business.get("location_count"),
+                "reviews": business.get("reviews"),
+                "ratings": business.get("rating"),
+            }
+            for business in businesses
+        ],
     }
+
+
+async def build_business_management_detail(
+    *,
+    user_id: str,
+    business_name: str,
+    overlook: str,
+) -> dict:
+    businesses, _ = await _build_business_groups(user_id)
+    business = next(
+        (
+            item
+            for item in businesses
+            if _business_matches_name(item, business_name)
+        ),
+        None,
+    )
+    if not business:
+        return {}
+
+    normalized_overlook = _normalize_text(overlook)
+
+    if normalized_overlook == "overview":
+        return {
+            "user_id": user_id,
+            "business_name": business.get("business_name"),
+            "overview": {
+                "business_owner_name": business.get("owner_name"),
+                "category": business.get("category"),
+                "account_created": business.get("account_created"),
+                "last_active": business.get("last_active"),
+            },
+        }
+
+    if normalized_overlook in {"location", "locations", "locations/locations"}:
+        return {
+            "user_id": user_id,
+            "business_name": business.get("business_name"),
+            "locations": [
+                {
+                    "business_name": location.get("business_name"),
+                    "address": location.get("address"),
+                    "reviews": location.get("reviews"),
+                    "rating": location.get("rating"),
+                }
+                for location in business.get("locations", [])
+            ],
+        }
+
+    if normalized_overlook == "analytics":
+        return {
+            "user_id": user_id,
+            "business_name": business.get("business_name"),
+            "analytics": _sentiment_analytics(business.get("locations", [])),
+        }
+
+    raise ValueError("overlook must be one of: overview, locations, analytics.")

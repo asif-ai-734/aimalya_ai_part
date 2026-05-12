@@ -88,6 +88,12 @@ async def competitor_report(
             }
         )
 
+    if not competitor_businesses:
+        raise HTTPException(
+            status_code=404,
+            detail="No competitor data found for this business.",
+        )
+
     all_businesses = [my_business] + competitor_businesses
 
     performance = competitor_analysis.build_performance_comparison(
@@ -101,23 +107,32 @@ async def competitor_report(
         my_business["name"],
     )
 
-    competitors_excel, my_advantages = competitor_analysis.extract_advantages(
+    _, competitive_advantages = competitor_analysis.extract_advantages(
         criteria,
         my_business["name"],
+    )
+    competitor_excel_evidence = competitor_analysis.build_competitor_excel_evidence(
+        my_business,
+        competitor_businesses,
     )
 
     business_goals = context.get("goals", []) if context else []
     report_frequency = context.get("report_frequency") if context else None
 
-    ai = await competitor_ai_service.generate_competitive_strategy(
-        {
-            "my_business": my_business,
-            "competitors": competitor_businesses,
-            "criteria_comparison": criteria,
-            "business_goals": business_goals,
-            "report_frequency": report_frequency,
-        }
-    )
+    try:
+        ai = await competitor_ai_service.generate_competitive_strategy(
+            {
+                "my_business": my_business,
+                "competitors": competitor_businesses,
+                "criteria_comparison": criteria,
+                "where_competitors_excel_evidence": competitor_excel_evidence,
+                "competitive_advantages": competitive_advantages,
+                "business_goals": business_goals,
+                "report_frequency": report_frequency,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {
         "business_goals": business_goals,
@@ -126,9 +141,9 @@ async def competitor_report(
         "performance_comparison": performance,
         "category_radar": radar,
         "criteria_comparison": criteria,
-        "competitors_excel": competitors_excel,
-        "my_advantages": my_advantages,
-        "strategic_recommendations": ai,
+        "where_competitors_excel": ai["where_competitors_excel"],
+        "competitive_advantages": competitive_advantages,
+        "strategic_recommendations": ai["recommendations"],
     }
 
 # from fastapi import APIRouter

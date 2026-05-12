@@ -63,24 +63,137 @@ def build_criteria_comparison(businesses: list, my_name: str):
     return result 
 
 
+def _number(value, default: float = 0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _display_score(value: float | int) -> float | int:
+    rounded = round(value, 1)
+    return int(rounded) if rounded.is_integer() else rounded
+
+
+def _metric_title(metric: str) -> str:
+    titles = {
+        "reviews": "Review Volume",
+        "response_rate": "Response Rate",
+    }
+    return titles.get(metric, metric.replace("_", " ").title())
+
+
+def _competitor_excel_evidence_record(
+    *,
+    evidence_id: str,
+    title: str,
+    leader: str,
+    metric: str,
+    competitor_value: float,
+    my_value: float,
+    source: str,
+) -> dict:
+    gap = round(competitor_value - my_value, 1)
+    relationship = "competitor_leads" if gap > 0 else "competitor_strength"
+
+    return {
+        "evidence_id": evidence_id,
+        "title": title,
+        "leader": leader,
+        "metric": metric,
+        "source": source,
+        "competitor_value": _display_score(competitor_value),
+        "my_value": _display_score(my_value),
+        "gap": _display_score(gap),
+        "relationship": relationship,
+    }
+
+
+def build_competitor_excel_evidence(
+    my_business: dict,
+    competitors: list[dict],
+) -> list[dict]:
+    if not competitors:
+        return []
+
+    evidence = []
+    business_metrics = ("rating", "reviews", "sentiment", "response_rate")
+
+    for metric in business_metrics:
+        my_value = _number(my_business.get(metric))
+        leader = max(competitors, key=lambda item: _number(item.get(metric)))
+        competitor_value = _number(leader.get(metric))
+
+        evidence.append(
+            _competitor_excel_evidence_record(
+                evidence_id=f"metric_{metric}",
+                title=_metric_title(metric),
+                leader=leader.get("name", "Competitor"),
+                metric=metric,
+                competitor_value=competitor_value,
+                my_value=my_value,
+                source="performance_comparison",
+            )
+        )
+
+    for metric, my_score in my_business.get("criteria", {}).items():
+        leader = max(
+            competitors,
+            key=lambda item: _number(item.get("criteria", {}).get(metric)),
+        )
+        competitor_value = _number(leader.get("criteria", {}).get(metric))
+
+        evidence.append(
+            _competitor_excel_evidence_record(
+                evidence_id=f"criteria_{metric}",
+                title=_metric_title(metric),
+                leader=leader.get("name", "Competitor"),
+                metric=metric,
+                competitor_value=competitor_value,
+                my_value=_number(my_score),
+                source="criteria_comparison",
+            )
+        )
+
+    evidence.sort(
+        key=lambda item: (
+            item["relationship"] != "competitor_leads",
+            -_number(item["gap"]),
+            -_number(item["competitor_value"]),
+        )
+    )
+    return evidence
+
+
+def _strength_for_area(area: str) -> str:
+    strengths = {
+        "Service": "Feature service quality in review responses and campaigns.",
+        "Quality": "Highlight this quality edge in marketing materials.",
+        "Atmosphere": "Use atmosphere as a differentiator in local promotions.",
+        "Value": "Promote value-led offers while protecting margin.",
+        "Cleanliness": "Showcase cleanliness in photos, replies, and store standards.",
+    }
+    return strengths.get(area, f"Use {area.lower()} as a competitive proof point.")
+
+
 def extract_advantages(criteria_comparison: list, my_name: str):
-    competitors_excel = []
-    my_advantages= []
+    competitive_advantages = []
 
     for c in criteria_comparison:
+        area = c["criteria"]
+        my_score = c["my_score"]
+        competitor_avg = c["competitor_avg"]
+
         if c["leader"]["name"]== my_name:
-            my_advantages.append({
-                "area": c["criteria"],
-                "my_score": c["my_score"],
-                "competitor_avg": c["competitor_avg"]
-            })
-        
-        else:
-            competitors_excel.append({
-                "area": c["criteria"],
-                "leader": c["leader"]["name"],
-                "leader_score": c["leader"]["score"],
-                "my_score": c["my_score"]
+            competitive_advantages.append({
+                "title": area,
+                "description": (
+                    f"You lead in {area.lower()} with {my_score} vs "
+                    f"competitor average of {competitor_avg}."
+                ),
+                "strength": _strength_for_area(area),
+                "my_score": my_score,
+                "competitor_avg": competitor_avg,
             })
     
-    return competitors_excel, my_advantages
+    return [], competitive_advantages
