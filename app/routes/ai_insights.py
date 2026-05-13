@@ -134,6 +134,34 @@ def _recommendation_title(recommendation: dict) -> str:
     return str(recommendation.get("title") or "").strip()
 
 
+def _combined_actionable_recommendations(
+    *payloads: dict,
+) -> list[dict]:
+    combined = []
+    seen_title_keys = set()
+
+    for payload in payloads:
+        recommendations = payload.get("actionable_recommendations")
+        if not isinstance(recommendations, list):
+            continue
+
+        for recommendation in recommendations:
+            if not isinstance(recommendation, dict):
+                continue
+
+            title_key = recommendation_title_key(
+                _recommendation_title(recommendation)
+            )
+            if title_key and title_key in seen_title_keys:
+                continue
+
+            if title_key:
+                seen_title_keys.add(title_key)
+            combined.append(recommendation)
+
+    return combined
+
+
 async def _save_and_filter_unread_recommendations(
     *,
     user_id: str,
@@ -332,9 +360,21 @@ async def ai_actionable_recommendations(
         ),
     }
 
-    recommendations = await ai_insights_service.generate_program_recommendations(
-        recommendations_input
+    program_recommendations, ai_insights = await asyncio.gather(
+        ai_insights_service.generate_program_recommendations(
+            recommendations_input
+        ),
+        ai_insights_service.generate_ai_insights(
+            insights_context["insights_input"]
+        ),
     )
+    recommendations = {
+        **program_recommendations,
+        "actionable_recommendations": _combined_actionable_recommendations(
+            program_recommendations,
+            ai_insights,
+        ),
+    }
 
     return await _save_and_filter_unread_recommendations(
         user_id=user_id,
