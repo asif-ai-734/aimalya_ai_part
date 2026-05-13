@@ -444,6 +444,35 @@ async def build_business_management() -> dict:
         ],
     }
 
+async def build_business_categories() -> dict:
+    businesses, _ = await _build_business_groups()
+
+    category_counter = Counter()
+
+    for business in businesses:
+        category = (
+            business.get("category")
+            or "unknown"
+        ).strip().lower()
+
+        category_counter[category] += 1
+
+    categories = [
+        {
+            "category": category,
+            "business_count": count,
+        }
+        for category, count in sorted(
+            category_counter.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    ]
+
+    return {
+        "total_categories": len(categories),
+        "categories": categories,
+    }
 
 async def build_business_management_detail(
     *,

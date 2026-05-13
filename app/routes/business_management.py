@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from app.services.business_management_service import (
     build_business_management,
     build_business_management_detail,
+    build_business_categories,
 )
 
 
@@ -34,3 +35,7 @@ async def business_management_detail(
         )
 
     return result
+
+@router.get("/management/categories")
+async def business_categories():
+    return await build_business_categories()

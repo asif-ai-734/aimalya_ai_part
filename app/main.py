@@ -10,6 +10,7 @@ from app.routes import competitor_analysis
 from app.routes import business_setup
 from app.routes import business_management
 from app.routes import goals_set_up_py
+from app.routes import business_profile
 from app.services.place_loader import PlaceDataNotFound
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -41,6 +42,7 @@ app.include_router(ai_insights.router)
 app.include_router(monthly_report.router)
 app.include_router(competitor_analysis.router)
 app.include_router(business_management.router)
+app.include_router(business_profile.router)
 
 
 @app.on_event("startup")

@@ -11,13 +11,21 @@ settings = get_settings()
 PRIMARY_TYPES = ["cafe", "restaurant", "bar", "bakery"]
 
 
+def _map_url(place_id: str | None) -> str | None:
+    if not place_id:
+        return None
+    return f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+
+
 def _to_competitor_card(place: dict) -> dict:
+    place_id = place.get("place_id")
     return {
-        "place_id": place.get("place_id"),
+        "place_id": place_id,
         "name": place.get("name", "Unknown"),
         "rating": place.get("rating", 0),
         "reviews": place.get("user_ratings_total", 0),
         "price_level": place.get("price_level", 2),
+        "map_url": _map_url(place_id),
     }
 
 
@@ -84,6 +92,7 @@ def _find_competitors_from_place_sync(
                 "rating": p.get("rating", 0),
                 "reviews": p.get("user_ratings_total", 0),
                 "price_level": p.get("price_level", 2),
+                "map_url": _map_url(p["place_id"]),
             }
         )
 

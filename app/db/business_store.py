@@ -206,3 +206,247 @@ def _get_all_user_businesses_sync() -> list[dict]:
 
 async def get_all_user_businesses() -> list[dict]:
     return await asyncio.to_thread(_get_all_user_businesses_sync)
+
+
+
+
+
+def _normalize(value: str | None) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def _business_map_url(place_id: str | None) -> str | None:
+    if not place_id:
+        return None
+
+    return f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+
+
+def _business_profile_response(business: dict) -> dict:
+    return {
+        "business_name": business.get("business_name"),
+        "category": business.get("business_category"),
+        "location": business.get("business_address") or business.get("input_address"),
+        "map_url": _business_map_url(business.get("place_id")),
+        "phone_no": business.get("phone_no"),
+        "website": business.get("website"),
+    }
+
+
+def _get_business_profile_sync(
+    *,
+    user_id: str,
+    business_name: str,
+    location: str,
+) -> dict | None:
+    _init_user_business_db_sync()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM user_businesses
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+    target_name = _normalize(business_name)
+    target_location = _normalize(location)
+
+    for row in rows:
+        business = _row_to_business(row)
+
+        current_name = _normalize(business.get("business_name"))
+        current_location = _normalize(
+            business.get("business_address") or business.get("input_address")
+        )
+
+        if current_name == target_name and current_location == target_location:
+            return _business_profile_response(business)
+
+    return None
+
+
+
+#new code for business profile update and retrieval
+
+async def get_business_profile(
+    *,
+    user_id: str,
+    business_name: str,
+    location: str,
+) -> dict | None:
+    return await asyncio.to_thread(
+        _get_business_profile_sync,
+        user_id=user_id,
+        business_name=business_name,
+        location=location,
+    )
+
+
+def _update_business_profile_sync(
+    *,
+    user_id: str,
+    existing_business_name: str,
+    existing_location: str,
+    new_business_name: str | None,
+    category: str | None,
+    new_location: str | None,
+    place_id: str | None,
+    phone_no: str | None,
+    website: str | None,
+) -> dict | None:
+    _init_user_business_db_sync()
+
+    now = datetime.utcnow().isoformat()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM user_businesses
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+        target_name = _normalize(existing_business_name)
+        target_location = _normalize(existing_location)
+
+        matched = None
+
+        for row in rows:
+            business = _row_to_business(row)
+
+            current_name = _normalize(business.get("business_name"))
+            current_location = _normalize(
+                business.get("business_address") or business.get("input_address")
+            )
+
+            if current_name == target_name and current_location == target_location:
+                matched = business
+                break
+
+        if not matched:
+            return None
+
+        current_location = matched.get("business_address") or matched.get("input_address")
+        updated_business_name = (
+            new_business_name
+            if new_business_name is not None
+            else matched.get("business_name")
+        )
+        updated_category = (
+            category
+            if category is not None
+            else matched.get("business_category")
+        )
+        updated_location = (
+            new_location
+            if new_location is not None
+            else current_location
+        )
+        updated_input_location = (
+            new_location
+            if new_location is not None
+            else matched.get("input_address")
+        )
+        updated_phone_no = (
+            phone_no
+            if phone_no is not None
+            else matched.get("phone_no")
+        )
+        updated_website = (
+            website
+            if website is not None
+            else matched.get("website")
+        )
+        new_place_id = place_id or matched.get("place_id")
+
+        conn.execute(
+            """
+            UPDATE user_businesses
+            SET business_name = ?,
+                business_category = ?,
+                business_address = ?,
+                input_address = ?,
+                place_id = ?,
+                phone_no = ?,
+                website = ?,
+                updated_at = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (
+                updated_business_name,
+                updated_category,
+                updated_location,
+                updated_input_location,
+                new_place_id,
+                updated_phone_no,
+                updated_website,
+                now,
+                matched["id"],
+                user_id,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE business_contexts
+            SET business_name = ?,
+                business_category = ?,
+                business_address = ?,
+                primary_place_id = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (
+                updated_business_name,
+                updated_category,
+                updated_location,
+                new_place_id,
+                matched["context_id"],
+                user_id,
+            ),
+        )
+
+        updated = conn.execute(
+            """
+            SELECT *
+            FROM user_businesses
+            WHERE id = ? AND user_id = ?
+            """,
+            (matched["id"], user_id),
+        ).fetchone()
+
+    if not updated:
+        return None
+
+    return _business_profile_response(_row_to_business(updated))
+
+
+async def update_business_profile(
+    *,
+    user_id: str,
+    existing_business_name: str,
+    existing_location: str,
+    new_business_name: str | None = None,
+    category: str | None = None,
+    new_location: str | None = None,
+    place_id: str | None = None,
+    phone_no: str | None = None,
+    website: str | None = None,
+) -> dict | None:
+    return await asyncio.to_thread(
+        _update_business_profile_sync,
+        user_id=user_id,
+        existing_business_name=existing_business_name,
+        existing_location=existing_location,
+        new_business_name=new_business_name,
+        category=category,
+        new_location=new_location,
+        place_id=place_id,
+        phone_no=phone_no,
+        website=website,
+    )

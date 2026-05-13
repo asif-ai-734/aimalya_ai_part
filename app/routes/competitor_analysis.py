@@ -15,6 +15,12 @@ from app.services.business_lookup import find_user_business
 router = APIRouter(prefix="/competitors", tags=["Competitor Analysis"])
 
 
+def _map_url(place_id: str | None) -> str | None:
+    if not place_id:
+        return None
+    return f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+
+
 @router.get("/analysis")
 async def competitor_report(
     user_id: str,
@@ -54,6 +60,7 @@ async def competitor_report(
 
     my_business = {
         "name": my.get("name") or "My Business",
+        "map_url": _map_url(place_id),
         "rating": my_rating,
         "reviews": my_reviews,
         "sentiment": round((my_rating / 5) * 100) if my_rating else 0,
@@ -79,6 +86,7 @@ async def competitor_report(
         competitor_businesses.append(
             {
                 "name": c.get("name") or "Unknown",
+                "map_url": c.get("map_url") or _map_url(c.get("place_id")),
                 "rating": rating,
                 "reviews": reviews,
                 "sentiment": round((rating / 5) * 100) if rating else 0,

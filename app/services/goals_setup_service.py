@@ -8,7 +8,7 @@ from app.db.business_context_store import (
     update_business_context_goals,
 )
 from app.db.business_store import get_user_businesses
-from app.db.place_store import upsert_place_data
+from app.db.place_store import get_place_data, upsert_place_data
 from app.schemas.goals_set_up_py import GoalsSetupRequest
 from app.services.google_places_service import (
     GooglePlacesError,
@@ -102,6 +102,20 @@ def _goals_raw_input(base_context: dict | None, goals_input: dict) -> dict:
     }
 
 
+def _merged_competitor_place_ids(
+    *,
+    existing_place_ids: list[str],
+    new_place_ids: list[str],
+    own_place_ids: set[str],
+) -> list[str]:
+    merged = []
+    for place_id in [*existing_place_ids, *new_place_ids]:
+        if not place_id or place_id in own_place_ids or place_id in merged:
+            continue
+        merged.append(place_id)
+    return merged
+
+
 async def _save_or_update_goals_context(
     *,
     context: dict | None,
@@ -172,6 +186,17 @@ async def _resolve_competitor_place(competitor_url: str) -> dict:
         }
 
 
+async def _summarize_saved_competitors(place_ids: list[str]) -> list[dict]:
+    places = await asyncio.gather(
+        *(get_place_data(place_id) for place_id in place_ids)
+    )
+    return [
+        summarize_place(place)
+        for place in places
+        if place
+    ]
+
+
 async def _save_single_business_goals(payload: GoalsSetupRequest, business) -> dict:
     matched_business, own_place_ids = await _business_for_goals(
         user_id=payload.user_id,
@@ -184,8 +209,13 @@ async def _save_single_business_goals(payload: GoalsSetupRequest, business) -> d
         user_id=payload.user_id,
     )
 
-    competitor_place_ids: list[str] = []
-    competitor_places: list[dict] = []
+    existing_competitor_place_ids = (
+        context.get("competitor_place_ids", [])
+        if context
+        else []
+    )
+    new_competitor_place_ids: list[str] = []
+    new_competitor_places: list[dict] = []
     competitor_errors: list[dict] = []
 
     resolved_competitors = await asyncio.gather(
@@ -202,14 +232,20 @@ async def _save_single_business_goals(payload: GoalsSetupRequest, business) -> d
 
         place_id = resolved["place_id"]
 
-        if place_id in own_place_ids or place_id in competitor_place_ids:
+        if place_id in own_place_ids or place_id in new_competitor_place_ids:
             continue
 
-        competitor_place_ids.append(place_id)
-        competitor_places.append(resolved["place"])
+        new_competitor_place_ids.append(place_id)
+        new_competitor_places.append(resolved["place"])
 
-    for place in competitor_places:
+    for place in new_competitor_places:
         await upsert_place_data(place)
+
+    competitor_place_ids = _merged_competitor_place_ids(
+        existing_place_ids=existing_competitor_place_ids,
+        new_place_ids=new_competitor_place_ids,
+        own_place_ids=own_place_ids,
+    )
 
     if not competitor_place_ids:
         error_details = "; ".join(
@@ -253,7 +289,11 @@ async def _save_single_business_goals(payload: GoalsSetupRequest, business) -> d
         "location": business.location,
         "place_id": selected_place_id,
         "goals": updated_context.get("goals", []),
-        "competitors": [summarize_place(place) for place in competitor_places],
+        "competitors": await _summarize_saved_competitors(competitor_place_ids),
+        "new_competitors": [
+            summarize_place(place)
+            for place in new_competitor_places
+        ],
         "competitor_errors": competitor_errors,
     }
 
