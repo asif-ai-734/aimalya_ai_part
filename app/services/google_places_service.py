@@ -51,6 +51,15 @@ PLACE_DETAILS_FIELD_MASK = ",".join(
 )
 TEXT_SEARCH_FIELD_MASK = "places.id"
 NEARBY_SEARCH_FIELD_MASK = "places.id,places.rating,places.userRatingCount"
+MAPS_EXPAND_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 PRICE_LEVELS = {
     "PRICE_LEVEL_FREE": 0,
@@ -292,6 +301,112 @@ def _extract_place_id_from_url(value: str | None) -> str | None:
     return None
 
 
+def _decode_url_candidate(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    decoded = html.unescape(value).strip()
+    for _ in range(2):
+        decoded = decoded.replace("\\u0026", "&")
+        decoded = decoded.replace("\\u003d", "=")
+        decoded = decoded.replace("\\/", "/")
+        decoded = unquote(decoded)
+
+    return decoded.strip()
+
+
+def _is_google_maps_url(value: str | None) -> bool:
+    if not value:
+        return False
+
+    parsed = urlparse(value)
+    host = parsed.netloc.casefold()
+    path = parsed.path.casefold()
+
+    return (
+        host == "maps.app.goo.gl"
+        or host.endswith(".goo.gl")
+        or host.startswith("maps.google.")
+        or ("google." in host and path.startswith("/maps"))
+    )
+
+
+def _is_short_maps_url(value: str | None) -> bool:
+    if not value:
+        return False
+
+    host = urlparse(value).netloc.casefold()
+    return host == "maps.app.goo.gl" or host.endswith(".goo.gl")
+
+
+def _add_url_candidate(candidates: list[str], value: str | None) -> None:
+    decoded = _decode_url_candidate(value)
+    if not decoded:
+        return
+
+    nested_values = []
+    parsed = urlparse(decoded)
+    query = parse_qs(parsed.query)
+    for key in ("q", "url", "u", "continue"):
+        nested_values.extend(query.get(key, []))
+
+    values = [decoded]
+    values.extend(_decode_url_candidate(item) for item in nested_values)
+
+    for item in values:
+        if item and item not in candidates:
+            candidates.append(item)
+
+
+def _urls_from_response_text(text: str | None) -> list[str]:
+    decoded = _decode_url_candidate(text)
+    if not decoded:
+        return []
+
+    return re.findall(r"https?://[^\s\"'<>]+", decoded)
+
+
+def _expanded_url_candidates(value: str | None) -> list[str]:
+    if not value:
+        return []
+
+    candidates: list[str] = []
+    _add_url_candidate(candidates, _normalize_url_candidate(value))
+
+    try:
+        response = requests.get(
+            candidates[0],
+            allow_redirects=True,
+            headers=MAPS_EXPAND_HEADERS,
+            timeout=15,
+        )
+    except requests.RequestException:
+        return candidates
+
+    for item in [*response.history, response]:
+        _add_url_candidate(candidates, item.url)
+        _add_url_candidate(candidates, item.headers.get("Location"))
+
+    content_type = response.headers.get("Content-Type", "")
+    if "text" in content_type or "html" in content_type:
+        for url in _urls_from_response_text(response.text):
+            _add_url_candidate(candidates, url)
+
+    return candidates
+
+
+def _best_expanded_maps_url(candidates: list[str]) -> str | None:
+    for candidate in candidates:
+        if _is_google_maps_url(candidate) and not _is_short_maps_url(candidate):
+            return candidate
+
+    for candidate in candidates:
+        if _is_google_maps_url(candidate):
+            return candidate
+
+    return candidates[0] if candidates else None
+
+
 def _coordinates_from_maps_path(path_parts: list[str]) -> tuple[float, float] | None:
     for part in path_parts:
         match = re.match(r"@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)", part)
@@ -305,11 +420,12 @@ def _expand_and_extract_place_id(value: str | None) -> str | None:
     if place_id or not value:
         return place_id
 
-    try:
-        response = requests.get(value, allow_redirects=True, timeout=10)
-        return _extract_place_id_from_url(response.url)
-    except requests.RequestException:
-        return None
+    for candidate in _expanded_url_candidates(value):
+        place_id = _extract_place_id_from_url(candidate)
+        if place_id:
+            return place_id
+
+    return None
 
 
 def _summary(place: dict) -> dict:
@@ -501,13 +617,27 @@ def _location_bias_from_url(value: str) -> dict | None:
 
 async def resolve_place_from_url_or_text(value: str) -> dict:
     normalized = _normalize_url_candidate(value)
-    place_id = await asyncio.to_thread(
-        _expand_and_extract_place_id,
+    place_id = _extract_place_id_from_url(normalized)
+    if place_id:
+        return await fetch_place_details(place_id)
+
+    expanded_candidates = await asyncio.to_thread(
+        _expanded_url_candidates,
         normalized,
+    )
+    expanded_url = _best_expanded_maps_url(expanded_candidates) or normalized
+    place_id = next(
+        (
+            candidate_place_id
+            for candidate in expanded_candidates
+            for candidate_place_id in [_extract_place_id_from_url(candidate)]
+            if candidate_place_id
+        ),
+        None,
     )
 
     if not place_id:
-        query = _query_from_url_or_text(value)
+        query = _query_from_url_or_text(expanded_url)
         if not query:
             raise GooglePlacesError(
                 "Provide a valid Google Maps URL or competitor name.",
@@ -515,7 +645,7 @@ async def resolve_place_from_url_or_text(value: str) -> dict:
             )
         place_id = await find_place_id_from_text(
             query,
-            _location_bias_from_url(normalized),
+            _location_bias_from_url(expanded_url),
         )
 
     return await fetch_place_details(place_id)
