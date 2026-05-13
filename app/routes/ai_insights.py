@@ -1,9 +1,13 @@
 #app.routes.ai_insights.py
 
 import asyncio
+from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, HTTPException
+import requests
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
+from app.core.config import get_settings
 from app.db.actionable_recommendation_store import (
     get_read_actionable_recommendation_title_keys,
     recommendation_title_key,
@@ -24,16 +28,78 @@ from app.services import (
 from app.services.business_lookup import find_user_business
 
 router = APIRouter(prefix="/insights", tags=["AI Insights"])
+settings = get_settings()
 
 
-def _business_picture(place_data: dict) -> dict | None:
+def _photo_proxy_url(
+    request: Request,
+    photo_reference: str | None,
+    *,
+    maxwidth: int = 800,
+) -> str | None:
+    if not photo_reference:
+        return None
+
+    query = urlencode(
+        {
+            "photo_reference": photo_reference,
+            "maxwidth": maxwidth,
+        }
+    )
+    return f"{request.url_for('ai_insights_place_photo')}?{query}"
+
+
+def _google_photo_response(
+    photo_reference: str,
+    *,
+    maxwidth: int,
+) -> requests.Response:
+    maxwidth = max(1, min(maxwidth, 1600))
+    clean_reference = photo_reference.strip()
+
+    if clean_reference.startswith("places/") and "/photos/" in clean_reference:
+        photo_resource = quote(clean_reference.lstrip("/"), safe="/")
+        google_url = f"https://places.googleapis.com/v1/{photo_resource}/media"
+        params = {"maxWidthPx": maxwidth}
+        headers = {"X-Goog-Api-Key": settings.google_places_api_key}
+    else:
+        google_url = "https://maps.googleapis.com/maps/api/place/photo"
+        params = {
+            "maxwidth": maxwidth,
+            "photo_reference": clean_reference,
+            "key": settings.google_places_api_key,
+        }
+        headers = {}
+
+    return requests.get(
+        google_url,
+        params=params,
+        headers=headers,
+        stream=True,
+        allow_redirects=True,
+        timeout=20,
+    )
+
+
+def _stream_google_response(response: requests.Response):
+    try:
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                yield chunk
+    finally:
+        response.close()
+
+
+def _business_picture(request: Request, place_data: dict) -> dict | None:
     photos = place_data.get("photos") or []
     if not photos:
         return None
 
     photo = photos[0]
+    photo_reference = photo.get("photo_reference")
     return {
-        "photo_reference": photo.get("photo_reference"),
+        "photo_reference": photo_reference,
+        "photo_url": _photo_proxy_url(request, photo_reference),
         "width": photo.get("width"),
         "height": photo.get("height"),
         "html_attributions": photo.get("html_attributions") or [],
@@ -175,8 +241,44 @@ async def _build_ai_insights_context(
     }
 
 
+@router.get("/place-photo", name="ai_insights_place_photo")
+async def ai_insights_place_photo(
+    photo_reference: str,
+    maxwidth: int = 800,
+):
+    if not photo_reference.strip():
+        raise HTTPException(status_code=400, detail="photo_reference is required.")
+
+    try:
+        response = await asyncio.to_thread(
+            _google_photo_response,
+            photo_reference,
+            maxwidth=maxwidth,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Google Place photo request failed: {exc}",
+        ) from exc
+
+    if response.status_code >= 400:
+        response.close()
+        raise HTTPException(
+            status_code=response.status_code if response.status_code < 500 else 502,
+            detail="Google Place photo could not be fetched.",
+        )
+
+    media_type = response.headers.get("Content-Type") or "image/jpeg"
+    return StreamingResponse(
+        _stream_google_response(response),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @router.get("/recommendations")
 async def ai_insights(
+    request: Request,
     user_id: str,
     business_name: str,
     address: str | None = None,
@@ -193,7 +295,10 @@ async def ai_insights(
 
     response = {
         **ai_insights,
-        "business_picture": _business_picture(insights_context["place_data"]),
+        "business_picture": _business_picture(
+            request,
+            insights_context["place_data"],
+        ),
         "performance_by_category": insights_context["performance_by_category"],
         "business_goals": insights_context["business_goals"],
     }

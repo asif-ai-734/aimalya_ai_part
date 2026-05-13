@@ -1,16 +1,18 @@
 #app.services.competitor_analysis.py
 
 
-def estimate_criteria_scores(rating: float, price_level: int):
-    base= max(min((rating / 5) * 100, 95), 40)
+def estimate_criteria_scores(rating: float | None, price_level: int | None = 2):
+    rating = rating if rating is not None else 0
+    price_level = price_level if price_level is not None else 2
 
+    base = max(min((rating / 5) * 100, 95), 40)
 
     return {
         "service": round(base / 20, 1),
         "quality": round((base + 5) / 20, 1),
         "atmosphere": round((base - 2) / 20, 1),
         "value": round((base - price_level * 8) / 20, 1),
-        "cleanliness": round((base + 3) / 20, 1)
+        "cleanliness": round((base + 3) / 20, 1),
     }
 
 
@@ -21,46 +23,47 @@ def build_performance_comparison(businesses: list):
         for metric in metrics
     }
 
+
 def build_category_radar(businesses: list):
     radar = {}
+
     for b in businesses:
         radar[b["name"]] = {
-            k.capitalize(): round((v /5) * 100)
+            k.capitalize(): round((v / 5) * 100)
             for k, v in b["criteria"].items()
         }
-    return radar
 
+    return radar
 
 
 def build_criteria_comparison(businesses: list, my_name: str):
     keys = businesses[0]["criteria"].keys()
-    result= []
-
+    result = []
 
     for key in keys:
-        scores= [(b["name"], b["criteria"][key]) for b in businesses]
+        scores = [(b["name"], b["criteria"][key]) for b in businesses]
         competitor_scores = [score for name, score in scores if name != my_name]
         avg_source = competitor_scores or [score for _, score in scores]
-        avg= round(sum(avg_source) / len(avg_source), 1)
-        leader= max(scores, key= lambda x:x[1])
+        avg = round(sum(avg_source) / len(avg_source), 1)
+        leader = max(scores, key=lambda x: x[1])
 
         my_score = next(
             b["criteria"][key]
             for b in businesses
             if b["name"] == my_name
-            )
-        
+        )
+
         result.append({
             "criteria": key.replace("_", " ").title(),
             "my_score": my_score,
             "competitor_avg": avg,
             "leader": {
                 "name": leader[0],
-                "score": leader[1]
-            }
+                "score": leader[1],
+            },
         })
 
-    return result 
+    return result
 
 
 def _number(value, default: float = 0) -> float:
@@ -162,6 +165,7 @@ def build_competitor_excel_evidence(
             -_number(item["competitor_value"]),
         )
     )
+
     return evidence
 
 
@@ -173,6 +177,7 @@ def _strength_for_area(area: str) -> str:
         "Value": "Promote value-led offers while protecting margin.",
         "Cleanliness": "Showcase cleanliness in photos, replies, and store standards.",
     }
+
     return strengths.get(area, f"Use {area.lower()} as a competitive proof point.")
 
 
@@ -184,7 +189,7 @@ def extract_advantages(criteria_comparison: list, my_name: str):
         my_score = c["my_score"]
         competitor_avg = c["competitor_avg"]
 
-        if c["leader"]["name"]== my_name:
+        if c["leader"]["name"] == my_name:
             competitive_advantages.append({
                 "title": area,
                 "description": (
@@ -195,5 +200,5 @@ def extract_advantages(criteria_comparison: list, my_name: str):
                 "my_score": my_score,
                 "competitor_avg": competitor_avg,
             })
-    
+
     return [], competitive_advantages
