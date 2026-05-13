@@ -10,19 +10,17 @@ router = APIRouter(prefix="/businesses", tags=["Business Management"])
 
 
 @router.get("/management")
-async def business_management(user_id: str):
-    return await build_business_management(user_id)
+async def business_management():
+    return await build_business_management()
 
 
 @router.get("/management/detail")
 async def business_management_detail(
-    user_id: str,
     business_name: str,
     overlook: str,
 ):
     try:
         result = await build_business_management_detail(
-            user_id=user_id,
             business_name=business_name,
             overlook=overlook,
         )
@@ -32,7 +30,7 @@ async def business_management_detail(
     if not result:
         raise HTTPException(
             status_code=404,
-            detail="Business not found for this user.",
+            detail="Business not found.",
         )
 
     return result

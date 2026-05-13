@@ -3,7 +3,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.db.business_store import get_user_businesses
+from app.db.business_store import get_all_user_businesses
 from app.db.place_store import get_place_data
 
 
@@ -179,6 +179,7 @@ def _build_location(business: dict, place: dict) -> dict:
 
     return {
         "id": business.get("id"),
+        "owner_id": business.get("user_id"),
         "context_id": business.get("context_id"),
         "place_id": place_id,
         "business_name": _first_truthy(
@@ -221,9 +222,10 @@ def _build_location(business: dict, place: dict) -> dict:
 
 
 def _business_key(location: dict) -> str:
+    owner_id = (location.get("owner_id") or "").strip().casefold()
     name = (location.get("business_name") or "").strip().casefold()
     category = (location.get("category") or "").strip().casefold()
-    return f"{name}|{category}"
+    return f"{owner_id}|{name}|{category}"
 
 
 def _business_matches_name(business: dict, business_name: str) -> bool:
@@ -292,8 +294,8 @@ def _sentiment_analytics(locations: list[dict]) -> dict:
     }
 
 
-async def _build_business_groups(user_id: str) -> tuple[list[dict], list[dict]]:
-    user_businesses = await get_user_businesses(user_id)
+async def _build_business_groups() -> tuple[list[dict], list[dict]]:
+    user_businesses = await get_all_user_businesses()
     places = await asyncio.gather(
         *(_place_for_business(business) for business in user_businesses)
     )
@@ -312,7 +314,7 @@ async def _build_business_groups(user_id: str) -> tuple[list[dict], list[dict]]:
                 "context_id": location.get("context_id"),
                 "business_name": location.get("business_name"),
                 "category": location.get("category"),
-                "owner_id": user_id,
+                "owner_id": business.get("user_id"),
                 "owner_name": _owner_name_from_business(business),
                 "created_at": location.get("created_at"),
                 "updated_at": location.get("updated_at"),
@@ -413,15 +415,14 @@ async def _build_business_groups(user_id: str) -> tuple[list[dict], list[dict]]:
     return businesses, locations
 
 
-async def build_business_management(user_id: str) -> dict:
-    businesses, locations = await _build_business_groups(user_id)
+async def build_business_management() -> dict:
+    businesses, locations = await _build_business_groups()
     total_reviews = sum(location.get("reviews", 0) for location in locations)
     avg_rating = _weighted_rating(
         [(location.get("rating"), location.get("reviews", 0)) for location in locations]
     )
 
     return {
-        "user_id": user_id,
         "total_business": len(businesses),
         "total_location": len(locations),
         "avg_rating": avg_rating,
@@ -430,6 +431,7 @@ async def build_business_management(user_id: str) -> dict:
             {
                 "business_name": business.get("business_name"),
                 "category": business.get("category"),
+                "owner_id": business.get("owner_id"),
                 "owner_name": business.get("owner_name"),
                 "phone": business.get("phone"),
                 "phone_no": business.get("phone_no"),
@@ -445,11 +447,10 @@ async def build_business_management(user_id: str) -> dict:
 
 async def build_business_management_detail(
     *,
-    user_id: str,
     business_name: str,
     overlook: str,
 ) -> dict:
-    businesses, _ = await _build_business_groups(user_id)
+    businesses, _ = await _build_business_groups()
     business = next(
         (
             item
@@ -465,8 +466,8 @@ async def build_business_management_detail(
 
     if normalized_overlook == "overview":
         return {
-            "user_id": user_id,
             "business_name": business.get("business_name"),
+            "owner_id": business.get("owner_id"),
             "overview": {
                 "business_owner_name": business.get("owner_name"),
                 "category": business.get("category"),
@@ -480,8 +481,8 @@ async def build_business_management_detail(
 
     if normalized_overlook in {"location", "locations", "locations/locations"}:
         return {
-            "user_id": user_id,
             "business_name": business.get("business_name"),
+            "owner_id": business.get("owner_id"),
             "locations": [
                 {
                     "business_name": location.get("business_name"),
@@ -498,8 +499,8 @@ async def build_business_management_detail(
 
     if normalized_overlook == "analytics":
         return {
-            "user_id": user_id,
             "business_name": business.get("business_name"),
+            "owner_id": business.get("owner_id"),
             "analytics": _sentiment_analytics(business.get("locations", [])),
         }
 

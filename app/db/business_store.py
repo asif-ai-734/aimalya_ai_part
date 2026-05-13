@@ -188,3 +188,21 @@ def _get_user_businesses_sync(user_id: str) -> list[dict]:
 
 async def get_user_businesses(user_id: str) -> list[dict]:
     return await asyncio.to_thread(_get_user_businesses_sync, user_id)
+
+
+def _get_all_user_businesses_sync() -> list[dict]:
+    _init_user_business_db_sync()
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM user_businesses
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+
+    return [_row_to_business(row) for row in rows]
+
+
+async def get_all_user_businesses() -> list[dict]:
+    return await asyncio.to_thread(_get_all_user_businesses_sync)
