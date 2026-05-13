@@ -13,6 +13,8 @@ class BusinessInput(BaseModel):
 
     name: str
     category: str
+    phone_no: str | None = None
+    website: str | None = None
     locations: list[BusinessLocationInput] = Field(..., min_length=1)
 
 
@@ -26,6 +28,8 @@ class BusinessSetupRequest(BaseModel):
                     {
                         "name": "XYZ Food Corner",
                         "category": "restaurant",
+                        "phone_no": "+8801712345678",
+                        "website": "https://xyzfood.example.com",
                         "locations": [
                             {
                                 "google_maps_url": "https://maps.google.com/...",

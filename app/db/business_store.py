@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +17,11 @@ def _json_load(value: str | None, fallback: Any) -> Any:
     return json.loads(value)
 
 
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    columns = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in columns)
+
+
 def _init_user_business_db_sync() -> None:
     with connect() as conn:
         conn.execute(
@@ -26,6 +32,8 @@ def _init_user_business_db_sync() -> None:
                 context_id INTEGER NOT NULL,
                 business_name TEXT NOT NULL,
                 business_category TEXT,
+                phone_no TEXT,
+                website TEXT,
                 business_address TEXT,
                 input_address TEXT,
                 place_id TEXT NOT NULL,
@@ -39,6 +47,10 @@ def _init_user_business_db_sync() -> None:
             )
             """
         )
+        if not _has_column(conn, "user_businesses", "phone_no"):
+            conn.execute("ALTER TABLE user_businesses ADD COLUMN phone_no TEXT")
+        if not _has_column(conn, "user_businesses", "website"):
+            conn.execute("ALTER TABLE user_businesses ADD COLUMN website TEXT")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_user_businesses_user
@@ -87,6 +99,8 @@ def _save_user_businesses_sync(
                 context_id,
                 business["business_name"],
                 business.get("business_category"),
+                business.get("phone_no"),
+                business.get("website"),
                 business.get("business_address"),
                 business.get("input_address"),
                 _json_dump(business.get("place_payload", {})),
@@ -103,6 +117,8 @@ def _save_user_businesses_sync(
                     SET context_id = ?,
                         business_name = ?,
                         business_category = ?,
+                        phone_no = ?,
+                        website = ?,
                         business_address = ?,
                         input_address = ?,
                         place_payload = ?,
@@ -118,15 +134,17 @@ def _save_user_businesses_sync(
                 """
                 INSERT INTO user_businesses (
                     user_id, context_id, business_name, business_category,
-                    business_address, input_address, place_id, place_payload,
-                    raw_input, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    phone_no, website, business_address, input_address, place_id,
+                    place_payload, raw_input, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
                     context_id,
                     business["business_name"],
                     business.get("business_category"),
+                    business.get("phone_no"),
+                    business.get("website"),
                     business.get("business_address"),
                     business.get("input_address"),
                     business["place_id"],

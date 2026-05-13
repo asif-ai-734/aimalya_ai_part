@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class BusinessGoal(BaseModel):
     business_name: str
+    location: str = Field(..., min_length=1)
     competitors_urls: list[str] = Field(..., min_length=1)
     goals: list[str] = Field(..., min_length=1)
 
@@ -46,6 +47,7 @@ class GoalsSetupRequest(BaseModel):
                 "businesses": [
                     {
                         "business_name": "Abc Coffee House",
+                        "location": "Uttara, Dhaka",
                         "competitors_urls": [
                             "map.google.com/CoffeeBean",
                             "maps.google.com/Starbucks",
@@ -58,6 +60,7 @@ class GoalsSetupRequest(BaseModel):
                     },
                     {
                         "business_name": "XYZ Burger",
+                        "location": "Banani, Dhaka",
                         "competitors_urls": [
                             "maps.google.com/BurgerKing",
                             "maps.google.com/McDonalds",
@@ -72,5 +75,5 @@ class GoalsSetupRequest(BaseModel):
         },
     )
 
-    user_id: str | None = Field(default=None, min_length=1)
+    user_id: str = Field(..., min_length=1)
     businesses: list[BusinessGoal] = Field(..., min_length=1)

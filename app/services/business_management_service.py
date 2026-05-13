@@ -161,9 +161,21 @@ async def _place_for_business(business: dict) -> dict:
 
 def _build_location(business: dict, place: dict) -> dict:
     opening_hours = place.get("opening_hours") or {}
+    raw_business = (business.get("raw_input") or {}).get("business") or {}
     place_id = business.get("place_id")
     rating = _as_float(place.get("rating"))
     reviews = _as_int(place.get("user_ratings_total"))
+    phone_no = _first_truthy(
+        business.get("phone_no"),
+        raw_business.get("phone_no"),
+        place.get("formatted_phone_number"),
+        place.get("international_phone_number"),
+    )
+    website = _first_truthy(
+        business.get("website"),
+        raw_business.get("website"),
+        place.get("website"),
+    )
 
     return {
         "id": business.get("id"),
@@ -190,11 +202,9 @@ def _build_location(business: dict, place: dict) -> dict:
         "rating": rating,
         "rating_stars": _rating_stars(rating),
         "reviews": reviews,
-        "phone": _first_truthy(
-            place.get("formatted_phone_number"),
-            place.get("international_phone_number"),
-        ),
-        "website": place.get("website"),
+        "phone": phone_no,
+        "phone_no": phone_no,
+        "website": website,
         "price_level": place.get("price_level"),
         "coordinates": _location_coordinates(place),
         "photo": _first_photo(place),
@@ -387,6 +397,14 @@ async def _build_business_groups(user_id: str) -> tuple[list[dict], list[dict]]:
                     ),
                     None,
                 ),
+                "phone_no": next(
+                    (
+                        location.get("phone_no")
+                        for location in group_locations
+                        if location.get("phone_no")
+                    ),
+                    None,
+                ),
                 "recent_reviews": recent_reviews,
                 "locations": group_locations,
             }
@@ -413,6 +431,9 @@ async def build_business_management(user_id: str) -> dict:
                 "business_name": business.get("business_name"),
                 "category": business.get("category"),
                 "owner_name": business.get("owner_name"),
+                "phone": business.get("phone"),
+                "phone_no": business.get("phone_no"),
+                "website": business.get("website"),
                 "location_count": business.get("location_count"),
                 "reviews": business.get("reviews"),
                 "ratings": business.get("rating"),
@@ -449,6 +470,9 @@ async def build_business_management_detail(
             "overview": {
                 "business_owner_name": business.get("owner_name"),
                 "category": business.get("category"),
+                "phone": business.get("phone"),
+                "phone_no": business.get("phone_no"),
+                "website": business.get("website"),
                 "account_created": business.get("account_created"),
                 "last_active": business.get("last_active"),
             },
@@ -462,6 +486,9 @@ async def build_business_management_detail(
                 {
                     "business_name": location.get("business_name"),
                     "address": location.get("address"),
+                    "phone": location.get("phone"),
+                    "phone_no": location.get("phone_no"),
+                    "website": location.get("website"),
                     "reviews": location.get("reviews"),
                     "rating": location.get("rating"),
                 }

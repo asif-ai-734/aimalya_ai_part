@@ -32,6 +32,13 @@ uvicorn app.main:app --reload
 - Docker Compose stores production data in a named volume at `/data/reviewiq.sqlite3`
 - Saved businesses are user-scoped through `user_id`
 
+For production Docker runs, keep `DB_PATH=/data/reviewiq.sqlite3` and keep the
+`reviewiq_data` named volume mounted at `/data`. A normal `docker compose down`
+keeps named volumes, but `docker compose down -v` removes them and deletes the
+SQLite database. This repo's compose file is named `dockercompose.yml`, so run it
+with `docker compose -f dockercompose.yml up -d` or rename it to a standard
+Compose filename such as `docker-compose.yml`.
+
 ## Endpoints
 
 - `GET /dashboard/overview`
@@ -46,6 +53,8 @@ uvicorn app.main:app --reload
 
 Example business setup request:
 
+`phone_no` and `website` are optional fields on each business entry.
+
 ```json
 {
   "user_id": "user_123",
@@ -53,6 +62,8 @@ Example business setup request:
     {
       "name": "XYZ Food Corner",
       "category": "restaurant",
+      "phone_no": "+8801712345678",
+      "website": "https://xyzfood.example.com",
       "locations": [
         {
           "google_maps_url": "https://maps.google.com/...",

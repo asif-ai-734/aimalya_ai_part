@@ -607,6 +607,8 @@ async def _resolve_business_location(
     return place, {
         "business_name": business.name,
         "business_category": business.category,
+        "phone_no": business.phone_no,
+        "website": business.website,
         "business_address": place.get("formatted_address")
         or (location.address_or_city if location else None),
         "input_address": location.address_or_city if location else None,
