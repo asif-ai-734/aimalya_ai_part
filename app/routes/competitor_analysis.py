@@ -1,8 +1,11 @@
 import asyncio
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException
 
 from app.db.business_context_store import get_latest_business_context
+
+
 
 from app.services import (
     place_loader,
@@ -11,8 +14,9 @@ from app.services import (
     competitor_ai_service,
 )
 from app.services.business_lookup import find_user_business
+from app.utils.counting_route import CountingRoute
 
-router = APIRouter(prefix="/competitors", tags=["Competitor Analysis"])
+router = APIRouter(prefix="/competitors", tags=["Competitor Analysis"], route_class=CountingRoute)
 
 
 def _map_url(place_id: str | None) -> str | None:

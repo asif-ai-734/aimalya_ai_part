@@ -1,10 +1,13 @@
+# pyrefly: ignore [missing-import]
 from fastapi import FastAPI, Request
+# pyrefly: ignore [missing-import]
 from fastapi.responses import JSONResponse
 from app.db.actionable_recommendation_store import init_actionable_recommendation_db
 from app.db.business_context_store import init_business_context_db
 from app.db.business_store import init_user_business_db
 from app.db.cache import init_cache
 from app.db.place_store import init_place_db
+from app.db import init_route_hit_db
 from app.routes import overview, review_analysis, ai_insights, monthly_report
 from app.routes import competitor_analysis
 from app.routes import business_setup
@@ -12,6 +15,7 @@ from app.routes import business_management
 from app.routes import goals_set_up_py
 from app.routes import business_profile
 from app.services.place_loader import PlaceDataNotFound
+# pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
 
 # from app.services.competitor_loader import find_competitors_from_place_json
@@ -52,6 +56,7 @@ async def init_databases():
     await init_business_context_db()
     await init_user_business_db()
     await init_actionable_recommendation_db()
+    await init_route_hit_db()
 
 
 

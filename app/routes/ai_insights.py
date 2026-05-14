@@ -4,7 +4,9 @@ import asyncio
 from urllib.parse import quote, urlencode
 
 import requests
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException, Request
+# pyrefly: ignore [missing-import]
 from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
@@ -26,8 +28,9 @@ from app.services import (
     ai_insights_service,
 )
 from app.services.business_lookup import find_user_business
+from app.utils.counting_route import CountingRoute
 
-router = APIRouter(prefix="/insights", tags=["AI Insights"])
+router = APIRouter(prefix="/insights", tags=["AI Insights"], route_class=CountingRoute)
 settings = get_settings()
 
 

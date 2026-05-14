@@ -5,9 +5,9 @@ from app.services.business_management_service import (
     build_business_management_detail,
     build_business_categories,
 )
+from app.utils.counting_route import CountingRoute
 
-
-router = APIRouter(prefix="/businesses", tags=["Business Management"])
+router = APIRouter(prefix="/businesses", tags=["Business Management"], route_class=CountingRoute)
 
 
 @router.get("/management")

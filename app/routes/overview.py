@@ -1,5 +1,6 @@
 # app.routes.overview.py
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException
 
 from app.services import (
@@ -11,9 +12,11 @@ from app.services import (
 )
 
 from app.services.business_lookup import find_user_business
+from app.utils.counting_route import CountingRoute
 
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"], route_class=CountingRoute)
+
 
 
 @router.get("/overview")

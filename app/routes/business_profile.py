@@ -1,5 +1,6 @@
 import asyncio
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException
 
 from app.db.business_store import (
@@ -7,8 +8,9 @@ from app.db.business_store import (
     update_business_profile,
 )
 from app.services.google_places_service import _expand_and_extract_place_id
+from app.utils.counting_route import CountingRoute
 
-router = APIRouter(prefix="/business-profile", tags=["Business Profile"])
+router = APIRouter(prefix="/business-profile", tags=["Business Profile"], route_class=CountingRoute)
 
 
 @router.get("")

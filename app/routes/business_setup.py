@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException
 
 from app.db.business_store import get_user_businesses
@@ -11,9 +12,9 @@ from app.services.google_places_service import (
     fetch_and_save_setup,
 )
 from app.utils.business_matching import business_matches
+from app.utils.counting_route import CountingRoute
 
-
-router = APIRouter(prefix="/businesses", tags=["Business Setup"])
+router = APIRouter(prefix="/businesses", tags=["Business Setup"], route_class=CountingRoute)
 
 
 @router.post("/fetch")

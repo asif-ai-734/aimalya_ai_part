@@ -4,6 +4,7 @@ import asyncio
 from collections import Counter
 from datetime import date
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException
 
 from app.db.business_context_store import get_latest_business_context
@@ -15,8 +16,9 @@ from app.services import (
     monthly_report_ai_service,
 )
 from app.services.business_lookup import find_user_business
+from app.utils.counting_route import CountingRoute
 
-router = APIRouter(prefix="/reports", tags=["Reports"])
+router = APIRouter(prefix="/reports", tags=["Reports"], route_class=CountingRoute)
 
 
 @router.get("/monthly")

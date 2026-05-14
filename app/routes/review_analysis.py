@@ -5,8 +5,9 @@ from fastapi import APIRouter, HTTPException
 from app.services import place_loader
 from app.services.business_lookup import find_user_business
 from app.services.review_analysis import build_reviews_analysis_page
+from app.utils.counting_route import CountingRoute
 
-router = APIRouter(prefix="/reviews", tags=["Reviews"])
+router = APIRouter(prefix="/reviews", tags=["Reviews"], route_class=CountingRoute)
 
 
 @router.get("/analysis")
