@@ -7,14 +7,19 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 
 from app.core.config import get_settings
-from app.db.business_context_store import save_business_context
-from app.db.business_store import save_user_businesses
+from app.db.business_context_store import (
+    get_latest_business_context,
+    save_business_context,
+)
+from app.db.business_store import get_user_businesses, save_user_businesses
 from app.db.place_store import upsert_place_data
 from app.schemas.business_setup import (
+    AddBusinessLocationRequest,
     BusinessInput,
     BusinessLocationInput,
     BusinessSetupRequest,
 )
+from app.utils.business_matching import business_matches
 
 
 settings = get_settings()
@@ -443,6 +448,60 @@ def summarize_place(place: dict) -> dict:
     return _summary(place)
 
 
+def _map_url(place_id: str | None) -> str | None:
+    if not place_id:
+        return None
+
+    return f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+
+
+def _first_present(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _existing_business_category(business: dict) -> str:
+    place_payload = business.get("place_payload") or {}
+    place_types = place_payload.get("types") or []
+    return (
+        business.get("business_category")
+        or (place_types[0] if place_types else None)
+        or "business"
+    )
+
+
+def _business_location_response(record: dict, place: dict) -> dict:
+    place_id = record.get("place_id") or place.get("place_id")
+    return {
+        "business_name": record.get("business_name"),
+        "category": record.get("business_category"),
+        "location": record.get("business_address") or record.get("input_address"),
+        "input_location": record.get("input_address"),
+        "place_id": place_id,
+        "map_url": _map_url(place_id),
+        "phone_no": record.get("phone_no"),
+        "website": record.get("website"),
+    }
+
+
+async def _find_existing_businesses(
+    *,
+    user_id: str,
+    business_name: str,
+) -> list[dict]:
+    businesses = await get_user_businesses(user_id)
+    return [
+        business
+        for business in businesses
+        if business_matches(
+            business,
+            business_name=business_name,
+        )
+    ]
+
+
 def _query_from_location(
     business: BusinessInput,
     location: BusinessLocationInput | None,
@@ -815,5 +874,79 @@ async def fetch_and_save_setup(payload: BusinessSetupRequest) -> dict:
         "places": [_summary(place) for place in places],
         "competitors": [],
         "competitor_errors": [],
+        "reviews_note": "Google Place Details returns up to five reviews per place.",
+    }
+
+
+async def add_business_location(payload: AddBusinessLocationRequest) -> dict:
+    existing_businesses = await _find_existing_businesses(
+        user_id=payload.user_id,
+        business_name=payload.business_name,
+    )
+
+    if not existing_businesses:
+        raise GooglePlacesError(
+            "Business not found for this user.",
+            status_code=404,
+        )
+
+    existing_business = existing_businesses[0]
+    business = BusinessInput(
+        name=existing_business.get("business_name") or payload.business_name,
+        category=_existing_business_category(existing_business),
+        phone_no=_first_present(payload.phone_no, existing_business.get("phone_no")),
+        website=_first_present(payload.website, existing_business.get("website")),
+        locations=[
+            BusinessLocationInput(
+                google_maps_url=payload.maps_url,
+                address_or_city=payload.location,
+            )
+        ],
+    )
+    location = business.locations[0]
+    place, business_record = await _resolve_business_location(
+        business,
+        location,
+    )
+
+    await upsert_place_data(place)
+
+    source_context = await get_latest_business_context(
+        existing_business.get("place_id"),
+        user_id=payload.user_id,
+    )
+    context_id = await save_business_context(
+        user_id=payload.user_id,
+        primary_place_id=place["place_id"],
+        place_ids=[place["place_id"]],
+        competitor_place_ids=[],
+        business_name=business.name,
+        business_address=business_record.get("business_address"),
+        business_category=business.category,
+        report_frequency=source_context.get("report_frequency")
+        if source_context
+        else None,
+        goals=[],
+        raw_input={
+            "add_location": payload.model_dump(),
+            "source_context_id": source_context.get("id")
+            if source_context
+            else None,
+        },
+    )
+
+    await save_user_businesses(
+        context_id=context_id,
+        user_id=payload.user_id,
+        businesses=[business_record],
+    )
+
+    return {
+        "status": "saved",
+        "user_id": payload.user_id,
+        "context_id": context_id,
+        "business_name": business.name,
+        "location": _business_location_response(business_record, place),
+        "place": _summary(place),
         "reviews_note": "Google Place Details returns up to five reviews per place.",
     }

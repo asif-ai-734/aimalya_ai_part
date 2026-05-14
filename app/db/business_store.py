@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from app.db.database import connect
+from app.utils.business_matching import business_matches
 
 
 def _json_dump(value: Any) -> str:
@@ -211,10 +212,6 @@ async def get_all_user_businesses() -> list[dict]:
 
 
 
-def _normalize(value: str | None) -> str:
-    return " ".join(str(value or "").strip().casefold().split())
-
-
 def _business_map_url(place_id: str | None) -> str | None:
     if not place_id:
         return None
@@ -231,6 +228,64 @@ def _business_profile_response(business: dict) -> dict:
         "phone_no": business.get("phone_no"),
         "website": business.get("website"),
     }
+
+
+def _updated_profile_raw_input(
+    raw_input: dict,
+    *,
+    business_name: str,
+    category: str | None,
+    location: str | None,
+    phone_no: str | None,
+    website: str | None,
+) -> dict:
+    updated_raw_input = dict(raw_input or {})
+    raw_business = dict(updated_raw_input.get("business") or {})
+
+    raw_business["name"] = business_name
+    if category is not None:
+        raw_business["category"] = category
+    if phone_no is not None:
+        raw_business["phone_no"] = phone_no
+    if website is not None:
+        raw_business["website"] = website
+
+    raw_location = dict(updated_raw_input.get("location") or {})
+    previous_google_maps_url = raw_location.get("google_maps_url")
+    previous_address = raw_location.get("address_or_city")
+
+    if location is not None:
+        raw_location["address_or_city"] = location
+        updated_raw_input["location"] = raw_location
+
+        raw_locations = raw_business.get("locations")
+        if isinstance(raw_locations, list):
+            updated_locations = []
+            for raw_location_item in raw_locations:
+                if not isinstance(raw_location_item, dict):
+                    updated_locations.append(raw_location_item)
+                    continue
+
+                updated_location_item = dict(raw_location_item)
+                same_saved_location = (
+                    previous_google_maps_url
+                    and updated_location_item.get("google_maps_url")
+                    == previous_google_maps_url
+                ) or (
+                    previous_address
+                    and updated_location_item.get("address_or_city")
+                    == previous_address
+                )
+
+                if same_saved_location:
+                    updated_location_item["address_or_city"] = location
+
+                updated_locations.append(updated_location_item)
+
+            raw_business["locations"] = updated_locations
+
+    updated_raw_input["business"] = raw_business
+    return updated_raw_input
 
 
 def _get_business_profile_sync(
@@ -252,18 +307,14 @@ def _get_business_profile_sync(
             (user_id,),
         ).fetchall()
 
-    target_name = _normalize(business_name)
-    target_location = _normalize(location)
-
     for row in rows:
         business = _row_to_business(row)
 
-        current_name = _normalize(business.get("business_name"))
-        current_location = _normalize(
-            business.get("business_address") or business.get("input_address")
-        )
-
-        if current_name == target_name and current_location == target_location:
+        if business_matches(
+            business,
+            business_name=business_name,
+            address=location,
+        ):
             return _business_profile_response(business)
 
     return None
@@ -313,20 +364,16 @@ def _update_business_profile_sync(
             (user_id,),
         ).fetchall()
 
-        target_name = _normalize(existing_business_name)
-        target_location = _normalize(existing_location)
-
         matched = None
 
         for row in rows:
             business = _row_to_business(row)
 
-            current_name = _normalize(business.get("business_name"))
-            current_location = _normalize(
-                business.get("business_address") or business.get("input_address")
-            )
-
-            if current_name == target_name and current_location == target_location:
+            if business_matches(
+                business,
+                business_name=existing_business_name,
+                address=existing_location,
+            ):
                 matched = business
                 break
 
@@ -365,6 +412,14 @@ def _update_business_profile_sync(
             else matched.get("website")
         )
         new_place_id = place_id or matched.get("place_id")
+        updated_raw_input = _updated_profile_raw_input(
+            matched.get("raw_input") or {},
+            business_name=updated_business_name,
+            category=updated_category,
+            location=updated_location,
+            phone_no=updated_phone_no,
+            website=updated_website,
+        )
 
         conn.execute(
             """
@@ -376,6 +431,7 @@ def _update_business_profile_sync(
                 place_id = ?,
                 phone_no = ?,
                 website = ?,
+                raw_input = ?,
                 updated_at = ?
             WHERE id = ? AND user_id = ?
             """,
@@ -387,6 +443,7 @@ def _update_business_profile_sync(
                 new_place_id,
                 updated_phone_no,
                 updated_website,
+                _json_dump(updated_raw_input),
                 now,
                 matched["id"],
                 user_id,

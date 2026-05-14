@@ -48,6 +48,7 @@ async def overview_dashboard(
     overview = overview_service.build_overview(
         place_data,
         analysis,
+        reviews,
     )
 
     sentiment_trend = sentiment_trend_service.build_sentiment_trend(
@@ -58,11 +59,25 @@ async def overview_dashboard(
     performance_criteria = criteria_service.aggregate_criteria_scores(
         analysis["reviews_analysis"]
     )
+    performance_criteria_growth = (
+        overview_service.build_performance_criteria_growth(
+            reviews,
+            analysis["reviews_analysis"],
+            performance_criteria,
+        )
+    )
 
     return {
         "overview": overview,
         "sentiment_trend": sentiment_trend,
         "performance_criteria": performance_criteria,
+        "performance_criteria_growth": performance_criteria_growth,
+        "performance_criteria_with_growth": (
+            overview_service.build_performance_criteria_with_growth(
+                performance_criteria,
+                performance_criteria_growth,
+            )
+        ),
     }
 
 

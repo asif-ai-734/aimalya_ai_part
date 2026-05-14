@@ -58,3 +58,26 @@ class BusinessSetupRequest(BaseModel):
 
     user_id: str = Field(..., min_length=1)
     businesses: list[BusinessInput] = Field(..., min_length=1)
+
+
+class AddBusinessLocationRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "user_id": "user_123",
+                "business_name": "XYZ Food Corner",
+                "location": "Uttara, Dhaka",
+                "maps_url": "https://maps.google.com/...",
+                "phone_no": "+8801712345678",
+                "website": "https://xyzfood.example.com",
+            }
+        },
+    )
+
+    user_id: str = Field(..., min_length=1)
+    business_name: str = Field(..., min_length=1)
+    location: str = Field(..., min_length=1)
+    maps_url: str = Field(..., min_length=1)
+    phone_no: str | None = None
+    website: str | None = None

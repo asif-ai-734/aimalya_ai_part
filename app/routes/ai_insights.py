@@ -127,7 +127,12 @@ def _business_details(
             or address
         ),
         "category": context.get("business_category") if context else None,
+        "rating": _business_rating(place_data),
     }
+
+
+def _business_rating(place_data: dict) -> float | int | None:
+    return place_data.get("rating")
 
 
 def _recommendation_title(recommendation: dict) -> str:
@@ -263,6 +268,7 @@ async def _build_ai_insights_context(
         "matched_business": matched_business,
         "place_data": place_data,
         "context": context,
+        "rating": _business_rating(place_data),
         "performance_by_category": performance_by_category,
         "business_goals": business_goals,
         "insights_input": insights_input,
@@ -327,6 +333,7 @@ async def ai_insights(
             request,
             insights_context["place_data"],
         ),
+        "rating": insights_context["rating"],
         "performance_by_category": insights_context["performance_by_category"],
         "business_goals": insights_context["business_goals"],
     }
@@ -370,6 +377,7 @@ async def ai_actionable_recommendations(
     )
     recommendations = {
         **program_recommendations,
+        "rating": insights_context["rating"],
         "actionable_recommendations": _combined_actionable_recommendations(
             program_recommendations,
             ai_insights,
