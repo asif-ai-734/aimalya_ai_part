@@ -52,6 +52,10 @@ def _init_user_business_db_sync() -> None:
             conn.execute("ALTER TABLE user_businesses ADD COLUMN phone_no TEXT")
         if not _has_column(conn, "user_businesses", "website"):
             conn.execute("ALTER TABLE user_businesses ADD COLUMN website TEXT")
+        if not _has_column(conn, "user_businesses", "account_status"):
+            conn.execute(
+                "ALTER TABLE user_businesses ADD COLUMN account_status TEXT NOT NULL DEFAULT 'active'"
+            )
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_user_businesses_user
@@ -74,6 +78,8 @@ def _row_to_business(row) -> dict:
     business = dict(row)
     business["place_payload"] = _json_load(business.get("place_payload"), {})
     business["raw_input"] = _json_load(business.get("raw_input"), {})
+    business["account_status"] = business.get("account_status") or "active"
+    business["is_suspended"] = business["account_status"] == "suspended"
     return business
 
 
@@ -179,6 +185,7 @@ def _get_user_businesses_sync(user_id: str) -> list[dict]:
             SELECT *
             FROM user_businesses
             WHERE user_id = ?
+              AND account_status != 'suspended'
             ORDER BY updated_at DESC, id DESC
             """,
             (user_id,),
@@ -207,6 +214,79 @@ def _get_all_user_businesses_sync() -> list[dict]:
 
 async def get_all_user_businesses() -> list[dict]:
     return await asyncio.to_thread(_get_all_user_businesses_sync)
+
+
+def _normalize_business_name(value: str | None) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def _update_business_account_status_sync(
+    *,
+    business_name: str,
+    account_status: str,
+) -> dict | None:
+    _init_user_business_db_sync()
+    normalized_name = _normalize_business_name(business_name)
+    now = datetime.utcnow().isoformat()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM user_businesses
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+        matched_ids = [
+            row["id"]
+            for row in rows
+            if _normalize_business_name(row["business_name"]) == normalized_name
+        ]
+
+        if not matched_ids:
+            return None
+
+        conn.executemany(
+            """
+            UPDATE user_businesses
+            SET account_status = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            [(account_status, now, business_id) for business_id in matched_ids],
+        )
+
+        placeholders = ",".join("?" for _ in matched_ids)
+        updated_rows = conn.execute(
+            f"""
+            SELECT *
+            FROM user_businesses
+            WHERE id IN ({placeholders})
+            ORDER BY updated_at DESC, id DESC
+            """,
+            matched_ids,
+        ).fetchall()
+
+    updated_businesses = [_row_to_business(row) for row in updated_rows]
+    return {
+        "business_name": updated_businesses[0].get("business_name"),
+        "account_status": account_status,
+        "is_suspended": account_status == "suspended",
+        "updated_count": len(updated_businesses),
+        "businesses": updated_businesses,
+    }
+
+
+async def update_business_account_status(
+    *,
+    business_name: str,
+    account_status: str,
+) -> dict | None:
+    return await asyncio.to_thread(
+        _update_business_account_status_sync,
+        business_name=business_name,
+        account_status=account_status,
+    )
 
 
 
@@ -302,6 +382,7 @@ def _get_business_profile_sync(
             SELECT *
             FROM user_businesses
             WHERE user_id = ?
+              AND account_status != 'suspended'
             ORDER BY updated_at DESC, id DESC
             """,
             (user_id,),

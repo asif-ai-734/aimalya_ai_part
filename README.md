@@ -49,6 +49,7 @@ Compose filename such as `docker-compose.yml`.
 - `GET /businesses?user_id=user_123`
 - `GET /businesses/user/user_123`
 - `GET /businesses/management`
+- `PATCH /businesses/management`
 - `GET /businesses/management/detail?business_name=XYZ%20Food%20Corner&overlook=overview`
 
 Example business setup request:

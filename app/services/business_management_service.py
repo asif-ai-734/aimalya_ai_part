@@ -3,7 +3,10 @@ from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.db.business_store import get_all_user_businesses
+from app.db.business_store import (
+    get_all_user_businesses,
+    update_business_account_status,
+)
 from app.db.place_store import get_place_data
 
 
@@ -199,6 +202,8 @@ def _build_location(business: dict, place: dict) -> dict:
         "input_address": business.get("input_address"),
         "business_status": place.get("business_status"),
         "status": _status_from_google_status(place.get("business_status")),
+        "account_status": business.get("account_status") or "active",
+        "is_suspended": bool(business.get("is_suspended")),
         "open_now": opening_hours.get("open_now"),
         "rating": rating,
         "rating_stars": _rating_stars(rating),
@@ -362,6 +367,14 @@ async def _build_business_groups() -> tuple[list[dict], list[dict]]:
                 "owner_name": group["owner_name"],
                 "account_created": group.get("created_at"),
                 "last_active": group.get("updated_at"),
+                "account_status": (
+                    "suspended"
+                    if any(
+                        location.get("account_status") == "suspended"
+                        for location in group_locations
+                    )
+                    else "active"
+                ),
                 "status": _group_status(group_locations),
                 "location_count": len(group_locations),
                 "reviews": reviews,
@@ -439,6 +452,8 @@ async def build_business_management() -> dict:
                 "location_count": business.get("location_count"),
                 "reviews": business.get("reviews"),
                 "ratings": business.get("rating"),
+                "account_status": business.get("account_status"),
+                "is_suspended": business.get("account_status") == "suspended",
             }
             for business in businesses
         ],
@@ -505,6 +520,8 @@ async def build_business_management_detail(
                 "website": business.get("website"),
                 "account_created": business.get("account_created"),
                 "last_active": business.get("last_active"),
+                "account_status": business.get("account_status"),
+                "is_suspended": business.get("account_status") == "suspended",
             },
         }
 
@@ -521,6 +538,8 @@ async def build_business_management_detail(
                     "website": location.get("website"),
                     "reviews": location.get("reviews"),
                     "rating": location.get("rating"),
+                    "account_status": location.get("account_status"),
+                    "is_suspended": location.get("is_suspended"),
                 }
                 for location in business.get("locations", [])
             ],
@@ -534,3 +553,32 @@ async def build_business_management_detail(
         }
 
     raise ValueError("overlook must be one of: overview, locations, analytics.")
+
+
+async def update_business_management_account_status(
+    *,
+    business_name: str,
+    action: str,
+) -> dict | None:
+    normalized_action = _normalize_text(action)
+    if normalized_action == "suspend":
+        account_status = "suspended"
+    elif normalized_action == "unsuspend":
+        account_status = "active"
+    else:
+        raise ValueError("action must be one of: suspend, unsuspend.")
+
+    result = await update_business_account_status(
+        business_name=business_name,
+        account_status=account_status,
+    )
+    if not result:
+        return None
+
+    return {
+        "business_name": result.get("business_name"),
+        "action": normalized_action,
+        "account_status": result.get("account_status"),
+        "is_suspended": result.get("is_suspended"),
+        "updated_count": result.get("updated_count"),
+    }

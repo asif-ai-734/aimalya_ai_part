@@ -5,3 +5,5 @@ google-genai
 pydantic
 pydantic-settings
 requests
+openai
+google
