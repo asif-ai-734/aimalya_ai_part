@@ -12,7 +12,9 @@ from fastapi.responses import StreamingResponse
 from app.core.config import get_settings
 from app.db.actionable_recommendation_store import (
     get_read_actionable_recommendation_title_keys,
+    get_unread_actionable_recommendations,
     recommendation_title_key,
+    save_actionable_recommendations,
     save_actionable_recommendation_titles,
     update_actionable_recommendation_status as set_actionable_recommendation_status,
 )
@@ -329,6 +331,9 @@ async def ai_insights(
     ai_insights = await ai_insights_service.generate_ai_insights(
         insights_context["insights_input"]
     )
+    stored_actionable_recommendations = await get_unread_actionable_recommendations(
+        user_id
+    )
 
     response = {
         **ai_insights,
@@ -339,6 +344,10 @@ async def ai_insights(
         "rating": insights_context["rating"],
         "performance_by_category": insights_context["performance_by_category"],
         "business_goals": insights_context["business_goals"],
+        "actionable_recommendations": _combined_actionable_recommendations(
+            {"actionable_recommendations": stored_actionable_recommendations},
+            ai_insights,
+        ),
     }
 
     return await _save_and_filter_unread_recommendations(
@@ -370,27 +379,20 @@ async def ai_actionable_recommendations(
         ),
     }
 
-    program_recommendations, ai_insights = await asyncio.gather(
-        ai_insights_service.generate_program_recommendations(
-            recommendations_input
-        ),
-        ai_insights_service.generate_ai_insights(
-            insights_context["insights_input"]
-        ),
+    program_recommendations = await ai_insights_service.generate_program_recommendations(
+        recommendations_input
     )
-    recommendations = {
-        **program_recommendations,
-        "rating": insights_context["rating"],
-        "actionable_recommendations": _combined_actionable_recommendations(
-            program_recommendations,
-            ai_insights,
-        ),
-    }
-
-    return await _save_and_filter_unread_recommendations(
+    recommendations = program_recommendations.get("actionable_recommendations") or []
+    saved_count = await save_actionable_recommendations(
         user_id=user_id,
-        payload=recommendations,
+        recommendations=recommendations,
     )
+
+    return {
+        "success": True,
+        "message": "Action returned successfully.",
+        "saved_count": saved_count,
+    }
 
 
 @router.patch("/actionable-recommendations/status")

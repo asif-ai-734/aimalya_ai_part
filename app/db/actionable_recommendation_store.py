@@ -1,5 +1,8 @@
 import asyncio
+import json
+import sqlite3
 from datetime import datetime
+from typing import Any
 
 from app.db.database import connect
 
@@ -13,6 +16,21 @@ def recommendation_title_key(title: str) -> str:
 
 def _clean_title(title: str) -> str:
     return str(title or "").strip()
+
+
+def _json_dump(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _json_load(value: str | None, fallback: Any) -> Any:
+    if not value:
+        return fallback
+    return json.loads(value)
+
+
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    columns = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in columns)
 
 
 def _init_actionable_recommendation_db_sync() -> None:
@@ -33,6 +51,8 @@ def _init_actionable_recommendation_db_sync() -> None:
             )
             """
         )
+        if not _has_column(conn, "actionable_recommendations", "payload"):
+            conn.execute("ALTER TABLE actionable_recommendations ADD COLUMN payload TEXT")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_actionable_recommendations_user_status
@@ -54,6 +74,13 @@ def _row_to_recommendation(row) -> dict:
         "updated_at": row["updated_at"],
         "read_at": row["read_at"],
     }
+
+
+def _row_to_recommendation_payload(row) -> dict | None:
+    payload = _json_load(row["payload"], None)
+    if not isinstance(payload, dict):
+        return None
+    return payload
 
 
 def _save_actionable_recommendation_titles_sync(
@@ -84,6 +111,51 @@ def _save_actionable_recommendation_titles_sync(
             )
 
 
+def _save_actionable_recommendations_sync(
+    *,
+    user_id: str,
+    recommendations: list[dict],
+) -> int:
+    _init_actionable_recommendation_db_sync()
+    now = datetime.utcnow().isoformat()
+    saved_count = 0
+
+    with connect() as conn:
+        for recommendation in recommendations:
+            if not isinstance(recommendation, dict):
+                continue
+
+            clean_title = _clean_title(recommendation.get("title"))
+            title_key = recommendation_title_key(clean_title)
+            if not title_key:
+                continue
+
+            conn.execute(
+                """
+                INSERT INTO actionable_recommendations (
+                    user_id, title, title_key, status, payload, created_at, updated_at
+                ) VALUES (?, ?, ?, 'unread', ?, ?, ?)
+                ON CONFLICT(user_id, title_key) DO UPDATE SET
+                    title = excluded.title,
+                    status = 'unread',
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at,
+                    read_at = NULL
+                """,
+                (
+                    user_id,
+                    clean_title,
+                    title_key,
+                    _json_dump(recommendation),
+                    now,
+                    now,
+                ),
+            )
+            saved_count += 1
+
+    return saved_count
+
+
 async def save_actionable_recommendation_titles(
     *,
     user_id: str,
@@ -93,6 +165,49 @@ async def save_actionable_recommendation_titles(
         _save_actionable_recommendation_titles_sync,
         user_id=user_id,
         titles=titles,
+    )
+
+
+async def save_actionable_recommendations(
+    *,
+    user_id: str,
+    recommendations: list[dict],
+) -> int:
+    return await asyncio.to_thread(
+        _save_actionable_recommendations_sync,
+        user_id=user_id,
+        recommendations=recommendations,
+    )
+
+
+def _get_unread_actionable_recommendations_sync(user_id: str) -> list[dict]:
+    _init_actionable_recommendation_db_sync()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM actionable_recommendations
+            WHERE user_id = ?
+              AND status = 'unread'
+              AND payload IS NOT NULL
+            ORDER BY updated_at DESC, id ASC
+            """,
+            (user_id,),
+        ).fetchall()
+
+    return [
+        payload
+        for row in rows
+        for payload in [_row_to_recommendation_payload(row)]
+        if payload is not None
+    ]
+
+
+async def get_unread_actionable_recommendations(user_id: str) -> list[dict]:
+    return await asyncio.to_thread(
+        _get_unread_actionable_recommendations_sync,
+        user_id,
     )
 
 
