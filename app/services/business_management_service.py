@@ -1,6 +1,6 @@
 import asyncio
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from app.db.business_store import (
@@ -8,6 +8,7 @@ from app.db.business_store import (
     update_business_account_status,
 )
 from app.db.place_store import get_place_data
+from app.db.route_hit_store import get_recent_route_events
 
 
 PhotoUrlBuilder = Callable[[str | None], str | None]
@@ -36,6 +37,46 @@ def _as_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return parsed
+
+
+def _time_ago(value: datetime) -> str:
+    seconds = max(int((datetime.utcnow() - value).total_seconds()), 0)
+    if seconds < 60:
+        return "just now"
+
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+
+    days = hours // 24
+    if days < 30:
+        return f"{days} day{'s' if days != 1 else ''} ago"
+
+    months = days // 30
+    if months < 12:
+        return f"{months} month{'s' if months != 1 else ''} ago"
+
+    years = months // 12
+    return f"{years} year{'s' if years != 1 else ''} ago"
 
 
 def _normalize_text(value: Any) -> str:
@@ -251,6 +292,74 @@ def _business_matches_name(business: dict, business_name: str) -> bool:
     )
 
 
+def _activity_item(
+    *,
+    activity_type: str,
+    title: str,
+    subtitle: str,
+    timestamp: datetime,
+    metadata: dict | None = None,
+) -> dict:
+    return {
+        "type": activity_type,
+        "title": title,
+        "subtitle": subtitle,
+        "time_ago": _time_ago(timestamp),
+        "created_at": timestamp.isoformat(),
+        "metadata": metadata or {},
+    }
+
+
+async def _recent_activity(
+    business: dict,
+    *,
+    user_id: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    activities = []
+
+    for location in business.get("locations", []):
+        created_at = _parse_datetime(location.get("created_at"))
+        if created_at:
+            activities.append(
+                _activity_item(
+                    activity_type="new_location_added",
+                    title="New location added",
+                    subtitle="All locations",
+                    timestamp=created_at,
+                    metadata={
+                        "business_name": location.get("business_name"),
+                        "address": location.get("address"),
+                        "place_id": location.get("place_id"),
+                    },
+                )
+            )
+
+    activity_user_id = user_id or business.get("owner_id")
+    if activity_user_id:
+        report_events = await get_recent_route_events(
+            activity_user_id,
+            ["/reports/monthly"],
+            limit=limit,
+        )
+        for event in report_events:
+            created_at = _parse_datetime(event.get("created_at"))
+            if not created_at:
+                continue
+            activities.append(
+                _activity_item(
+                    activity_type="monthly_report_generated",
+                    title="Monthly report generated",
+                    subtitle="All locations",
+                    timestamp=created_at,
+                    metadata={"route_path": event.get("route_path")},
+                )
+            )
+
+    activities.sort(key=lambda item: item["created_at"], reverse=True)
+    return activities[:limit]
+
+
 def _review_datetime(review: dict) -> datetime | None:
     timestamp = review.get("time")
     if timestamp is None:
@@ -312,9 +421,16 @@ def _sentiment_analytics(locations: list[dict]) -> dict:
 
 
 async def _build_business_groups(
+    user_id: str | None = None,
     photo_url_builder: PhotoUrlBuilder | None = None,
 ) -> tuple[list[dict], list[dict]]:
     user_businesses = await get_all_user_businesses()
+    if user_id:
+        user_businesses = [
+            business
+            for business in user_businesses
+            if business.get("user_id") == user_id
+        ]
     places = await asyncio.gather(
         *(_place_for_business(business) for business in user_businesses)
     )
@@ -443,9 +559,13 @@ async def _build_business_groups(
 
 
 async def build_business_management(
+    user_id: str | None = None,
     photo_url_builder: PhotoUrlBuilder | None = None,
 ) -> dict:
-    businesses, locations = await _build_business_groups(photo_url_builder)
+    businesses, locations = await _build_business_groups(
+        user_id=user_id,
+        photo_url_builder=photo_url_builder,
+    )
     total_reviews = sum(location.get("reviews", 0) for location in locations)
     avg_rating = _weighted_rating(
         [(location.get("rating"), location.get("reviews", 0)) for location in locations]
@@ -509,28 +629,41 @@ async def build_business_categories() -> dict:
 
 async def build_business_management_detail(
     *,
-    business_name: str,
+    business_name: str | None = None,
+    user_id: str | None = None,
     overlook: str,
     photo_url_builder: PhotoUrlBuilder | None = None,
 ) -> dict:
-    businesses, _ = await _build_business_groups(photo_url_builder)
-    business = next(
-        (
-            item
-            for item in businesses
-            if _business_matches_name(item, business_name)
-        ),
-        None,
+    businesses, _ = await _build_business_groups(
+        user_id=user_id,
+        photo_url_builder=photo_url_builder,
     )
+    if business_name:
+        business = next(
+            (
+                item
+                for item in businesses
+                if _business_matches_name(item, business_name)
+            ),
+            None,
+        )
+    else:
+        business = businesses[0] if businesses else None
+
     if not business:
         return {}
 
     normalized_overlook = _normalize_text(overlook)
 
     if normalized_overlook == "overview":
+        recent_activity = await _recent_activity(
+            business,
+            user_id=user_id,
+        )
         return {
             "business_name": business.get("business_name"),
             "owner_id": business.get("owner_id"),
+            "recent_activity": recent_activity,
             "overview": {
                 "business_owner_name": business.get("owner_name"),
                 "category": business.get("category"),

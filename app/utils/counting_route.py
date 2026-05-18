@@ -2,7 +2,7 @@ import json
 from typing import Callable
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
-from app.db.route_hit_store import increment_and_get_hit_count
+from app.db.route_hit_store import increment_and_get_hit_count, record_route_event
 
 class CountingRoute(APIRoute):
     def get_route_handler(self) -> Callable:
@@ -17,6 +17,8 @@ class CountingRoute(APIRoute):
             
             # 3. Call the original route handler
             response: Response = await original_handler(request)
+            if response.status_code < 400:
+                await record_route_event(user_id, request.url.path)
             
             # 4. If it's a JSON response, inject the count
             content_type = response.headers.get("Content-Type", "")

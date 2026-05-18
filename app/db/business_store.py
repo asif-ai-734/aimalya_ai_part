@@ -299,11 +299,32 @@ def _business_map_url(place_id: str | None) -> str | None:
     return f"https://www.google.com/maps/place/?q=place_id:{place_id}"
 
 
+def _business_input_location(business: dict) -> str | None:
+    raw_input = business.get("raw_input") or {}
+    raw_location = raw_input.get("location") or {}
+    raw_business = raw_input.get("business") or {}
+    raw_locations = raw_business.get("locations") or []
+
+    return (
+        business.get("input_address")
+        or raw_location.get("address_or_city")
+        or next(
+            (
+                location.get("address_or_city")
+                for location in raw_locations
+                if isinstance(location, dict) and location.get("address_or_city")
+            ),
+            None,
+        )
+    )
+
+
 def _business_profile_response(business: dict) -> dict:
     return {
         "business_name": business.get("business_name"),
         "category": business.get("business_category"),
         "location": business.get("business_address") or business.get("input_address"),
+        "input_location": _business_input_location(business),
         "map_url": _business_map_url(business.get("place_id")),
         "phone_no": business.get("phone_no"),
         "website": business.get("website"),

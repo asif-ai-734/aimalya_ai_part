@@ -33,8 +33,12 @@ def _photo_proxy_url(
 
 
 @router.get("/management")
-async def business_management(request: Request):
+async def business_management(
+    request: Request,
+    user_id: str | None = None,
+):
     return await build_business_management(
+        user_id=user_id,
         photo_url_builder=lambda reference: _photo_proxy_url(request, reference)
     )
 
@@ -58,15 +62,18 @@ async def update_business_account_status(payload: BusinessAccountStatusRequest):
     return result
 
 
+@router.get("/management/details")
 @router.get("/management/detail")
 async def business_management_detail(
     request: Request,
-    business_name: str,
     overlook: str,
+    business_name: str | None = None,
+    user_id: str | None = None,
 ):
     try:
         result = await build_business_management_detail(
             business_name=business_name,
+            user_id=user_id,
             overlook=overlook,
             photo_url_builder=lambda reference: _photo_proxy_url(request, reference),
         )
