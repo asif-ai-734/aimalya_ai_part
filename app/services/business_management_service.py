@@ -1,13 +1,16 @@
 import asyncio
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from app.db.business_store import (
     get_all_user_businesses,
     update_business_account_status,
 )
 from app.db.place_store import get_place_data
+
+
+PhotoUrlBuilder = Callable[[str | None], str | None]
 
 
 def _first_truthy(*values: Any) -> Any:
@@ -93,14 +96,19 @@ def _group_status(locations: list[dict]) -> str:
     return "unknown"
 
 
-def _first_photo(place: dict) -> dict | None:
+def _first_photo(
+    place: dict,
+    photo_url_builder: PhotoUrlBuilder | None = None,
+) -> dict | None:
     photos = place.get("photos") or []
     if not photos:
         return None
 
     photo = photos[0]
+    photo_reference = photo.get("photo_reference")
     return {
-        "photo_reference": photo.get("photo_reference"),
+        "photo_reference": photo_reference,
+        "photo_url": photo_url_builder(photo_reference) if photo_url_builder else None,
         "width": photo.get("width"),
         "height": photo.get("height"),
         "html_attributions": photo.get("html_attributions") or [],
@@ -162,7 +170,11 @@ async def _place_for_business(business: dict) -> dict:
     return place or business.get("place_payload") or {}
 
 
-def _build_location(business: dict, place: dict) -> dict:
+def _build_location(
+    business: dict,
+    place: dict,
+    photo_url_builder: PhotoUrlBuilder | None = None,
+) -> dict:
     opening_hours = place.get("opening_hours") or {}
     raw_business = (business.get("raw_input") or {}).get("business") or {}
     place_id = business.get("place_id")
@@ -213,7 +225,7 @@ def _build_location(business: dict, place: dict) -> dict:
         "website": website,
         "price_level": place.get("price_level"),
         "coordinates": _location_coordinates(place),
-        "photo": _first_photo(place),
+        "photo": _first_photo(place, photo_url_builder),
         "google_maps_url": (
             f"https://www.google.com/maps/place/?q=place_id:{place_id}"
             if place_id
@@ -299,13 +311,15 @@ def _sentiment_analytics(locations: list[dict]) -> dict:
     }
 
 
-async def _build_business_groups() -> tuple[list[dict], list[dict]]:
+async def _build_business_groups(
+    photo_url_builder: PhotoUrlBuilder | None = None,
+) -> tuple[list[dict], list[dict]]:
     user_businesses = await get_all_user_businesses()
     places = await asyncio.gather(
         *(_place_for_business(business) for business in user_businesses)
     )
     locations = [
-        _build_location(business, place)
+        _build_location(business, place, photo_url_builder)
         for business, place in zip(user_businesses, places)
     ]
 
@@ -428,8 +442,10 @@ async def _build_business_groups() -> tuple[list[dict], list[dict]]:
     return businesses, locations
 
 
-async def build_business_management() -> dict:
-    businesses, locations = await _build_business_groups()
+async def build_business_management(
+    photo_url_builder: PhotoUrlBuilder | None = None,
+) -> dict:
+    businesses, locations = await _build_business_groups(photo_url_builder)
     total_reviews = sum(location.get("reviews", 0) for location in locations)
     avg_rating = _weighted_rating(
         [(location.get("rating"), location.get("reviews", 0)) for location in locations]
@@ -449,6 +465,8 @@ async def build_business_management() -> dict:
                 "phone": business.get("phone"),
                 "phone_no": business.get("phone_no"),
                 "website": business.get("website"),
+                "photo": business.get("primary_photo"),
+                "primary_photo": business.get("primary_photo"),
                 "location_count": business.get("location_count"),
                 "reviews": business.get("reviews"),
                 "ratings": business.get("rating"),
@@ -493,8 +511,9 @@ async def build_business_management_detail(
     *,
     business_name: str,
     overlook: str,
+    photo_url_builder: PhotoUrlBuilder | None = None,
 ) -> dict:
-    businesses, _ = await _build_business_groups()
+    businesses, _ = await _build_business_groups(photo_url_builder)
     business = next(
         (
             item
@@ -518,6 +537,8 @@ async def build_business_management_detail(
                 "phone": business.get("phone"),
                 "phone_no": business.get("phone_no"),
                 "website": business.get("website"),
+                "photo": business.get("primary_photo"),
+                "primary_photo": business.get("primary_photo"),
                 "account_created": business.get("account_created"),
                 "last_active": business.get("last_active"),
                 "account_status": business.get("account_status"),
@@ -536,6 +557,7 @@ async def build_business_management_detail(
                     "phone": location.get("phone"),
                     "phone_no": location.get("phone_no"),
                     "website": location.get("website"),
+                    "photo": location.get("photo"),
                     "reviews": location.get("reviews"),
                     "rating": location.get("rating"),
                     "account_status": location.get("account_status"),
