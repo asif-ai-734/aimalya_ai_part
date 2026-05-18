@@ -3,8 +3,8 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    GEMINI_API_KEY: str
-    GEMINI_MODEL: str
+    OPENAI_API_KEY: str
+    OPENAI_MODEL: str
     GOOGLE_PLACE_API: str | None = None
     GOOGLE_PLACES_API_KEY: str | None = None
     DB_PATH: str = "app/db/cache.sqlite3"

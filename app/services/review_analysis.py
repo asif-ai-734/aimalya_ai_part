@@ -2,22 +2,22 @@ import asyncio
 from statistics import mean
 from collections import Counter
 from datetime import datetime
-from app.services.gemini_client import analyze_review_with_gemini
+from app.services.openai_analysis_client import analyze_review_with_openai
 
 
-GEMINI_REVIEW_CONCURRENCY = 5
+OPENAI_REVIEW_CONCURRENCY = 5
 
 
 async def _analyze_review(review: dict, semaphore: asyncio.Semaphore) -> dict:
     async with semaphore:
-        return await analyze_review_with_gemini(review.get("text", ""))
+        return await analyze_review_with_openai(review.get("text", ""))
 
 
 async def build_reviews_analysis_page(reviews: list):
     ratings = []
     sentiment_counter = Counter()
     analyzed_reviews = []
-    semaphore = asyncio.Semaphore(GEMINI_REVIEW_CONCURRENCY)
+    semaphore = asyncio.Semaphore(OPENAI_REVIEW_CONCURRENCY)
     ai_results = await asyncio.gather(
         *(_analyze_review(review, semaphore) for review in reviews)
     )

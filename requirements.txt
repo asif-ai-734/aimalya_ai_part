@@ -1,9 +1,7 @@
 uvicorn
 fastapi
 python-dotenv
-google-genai
 pydantic
 pydantic-settings
 requests
-openai
-google
+openai>=2.37.0

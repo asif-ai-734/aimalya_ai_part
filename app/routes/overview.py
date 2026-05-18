@@ -108,7 +108,7 @@ async def overview_dashboard(
 #     place_data = await place_loader.load_place_data(place_id, user_id=user_id)
 #     reviews = place_data.get("reviews", [])
 
-#     # 1️⃣ Analyze reviews ONCE (Gemini already inside)
+#     # Analyze reviews ONCE (OpenAI analysis already inside)
 #     analysis = await dashboard_analysis.analyze_reviews(reviews)
 
 #     # 2️⃣ Build sections

@@ -14,8 +14,9 @@ pip install -r requirements.txt
 Create `.env`:
 
 ```
-GEMINI_API_KEY=your_key
-GEMINI_MODEL=your_model
+OPENAI_API_KEY=your_key
+OPENAI_MODEL=gpt-5.4-nano
+GOOGLE_PLACE_API=your_google_places_key
 DB_PATH=app/db/cache.sqlite3
 ```
 

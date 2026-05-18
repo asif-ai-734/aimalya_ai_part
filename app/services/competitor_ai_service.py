@@ -1,24 +1,54 @@
-import asyncio
-from google import genai
-from app.core.config import get_settings
-import json, re 
+import json
+
+from app.services.openai_analysis_client import generate_structured_json
 
 
-
-settings = get_settings()
-client= genai.Client(api_key= settings.GEMINI_API_KEY)
-
-def _extract_json(text: str):
-    match= re.search (r"\{.*\}", text, re.DOTALL)
-    return json.loads(match.group())
+COMPETITIVE_STRATEGY_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "where_competitors_excel": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "opportunity": {"type": "string"},
+                    "evidence_id": {"type": "string"},
+                },
+                "required": [
+                    "title",
+                    "description",
+                    "opportunity",
+                    "evidence_id",
+                ],
+            },
+        },
+        "recommendations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                "required": ["title", "description"],
+            },
+        },
+    },
+    "required": ["where_competitors_excel", "recommendations"],
+}
 
 
 def _string_value(value) -> str:
     return str(value or "").strip()
 
 
-def _evidence_by_id(playload: dict) -> dict:
-    evidence = playload.get("where_competitors_excel_evidence") or []
+def _evidence_by_id(payload: dict) -> dict:
+    evidence = payload.get("where_competitors_excel_evidence") or []
     if not isinstance(evidence, list):
         return {}
     return {
@@ -28,8 +58,8 @@ def _evidence_by_id(playload: dict) -> dict:
     }
 
 
-def _normalize_competitor_excel(result: dict, playload: dict) -> list[dict]:
-    evidence_by_id = _evidence_by_id(playload)
+def _normalize_competitor_excel(result: dict, payload: dict) -> list[dict]:
+    evidence_by_id = _evidence_by_id(payload)
     raw_items = result.get("where_competitors_excel", [])
     if not isinstance(raw_items, list):
         raw_items = []
@@ -65,7 +95,8 @@ def _normalize_competitor_excel(result: dict, playload: dict) -> list[dict]:
 
     if evidence_by_id and not normalized:
         raise ValueError(
-            "AI response must include at least one data-backed competitor-excel item."
+            "OpenAI response must include at least one data-backed "
+            "competitor-excel item."
         )
 
     return normalized[:3]
@@ -95,87 +126,66 @@ def _normalize_recommendations(result: dict) -> list[dict]:
     return recommendations[:4]
 
 
-def _normalize_competitive_strategy(result: dict, playload: dict) -> dict:
+def _normalize_competitive_strategy(result: dict, payload: dict) -> dict:
     return {
-        "where_competitors_excel": _normalize_competitor_excel(result, playload),
+        "where_competitors_excel": _normalize_competitor_excel(result, payload),
         "recommendations": _normalize_recommendations(result),
     }
 
 
-def _build_prompt(playload: dict, retry: bool = False) -> str:
+def _build_prompt(retry: bool = False) -> str:
     retry_instruction = ""
     if retry:
         retry_instruction = """
-    Your previous response did not include a valid data-backed
-    where_competitors_excel item. Return the same JSON shape again, and make
-    sure every where_competitors_excel item uses an evidence_id from
-    where_competitors_excel_evidence.
-    """
+Your previous response did not include a valid data-backed
+where_competitors_excel item. Return the same JSON shape again, and make
+sure every where_competitors_excel item uses an evidence_id from
+where_competitors_excel_evidence.
+"""
 
     return f"""
-    You are a business strategy consultant.
+You are a business strategy consultant.
 
-    Analyze this competitive comparison and return STRICT JSON:
+Analyze the supplied competitive comparison JSON and return data that matches
+the schema exactly.
 
-    {{
-        "where_competitors_excel": [
-            {{
-                "title": "short title",
-                "description": "short description using the evidence values",
-                "opportunity": "short action based on the evidence",
-                "evidence_id": "id from where_competitors_excel_evidence"
-            }}
-        ],
-        "recommendations": [
-            {{
-                "title": "short title",
-                "description": "short description"
-            }}
-        ]
-    }}
+Rules:
+- where_competitors_excel is required and must not be empty when
+  where_competitors_excel_evidence is not empty.
+- Build where_competitors_excel only from where_competitors_excel_evidence.
+- Do not invent competitor names, metrics, scores, counts, or gaps.
+- Prefer evidence where relationship is competitor_leads.
+- If competitors do not lead your business on any metric, use the strongest
+  actual competitor_strength evidence and describe it honestly as strength
+  or close competition, not as a false lead.
+- Return 3 to 4 recommendations.
+- Each title must be concise, 3 to 6 words.
+- Each description must be concise, 1 sentence.
+- Focus on competitor gaps, competitive advantages, and business goals.
+- Do not use random examples or predefined fallback content.
 
-    Rules:
-    - where_competitors_excel is required and must not be empty when
-      where_competitors_excel_evidence is not empty.
-    - Build where_competitors_excel only from where_competitors_excel_evidence.
-    - Do not invent competitor names, metrics, scores, counts, or gaps.
-    - Prefer evidence where relationship is competitor_leads.
-    - If competitors do not lead your business on any metric, use the strongest
-      actual competitor_strength evidence and describe it honestly as strength
-      or close competition, not as a false lead.
-    - Return 3 to 4 recommendations.
-    - Each title must be concise, 3 to 6 words.
-    - Each description must be concise, 1 sentence.
-    - Focus on competitor gaps, competitive advantages, and business goals.
-    - Do not use random examples or predefined fallback content.
-
-    {retry_instruction}
-
-    Data:
-    {
-        json.dumps(playload, indent=2)
-    }
-    """
+{retry_instruction}
+"""
 
 
-async def generate_competitive_strategy(playload: dict):
-    prompt = _build_prompt(playload)
-
-    res = await asyncio.to_thread(
-        client.models.generate_content,
-        model=settings.GEMINI_MODEL,
-        contents=prompt,
+async def generate_competitive_strategy(payload: dict):
+    result = await generate_structured_json(
+        schema_name="competitive_strategy",
+        schema=COMPETITIVE_STRATEGY_SCHEMA,
+        instructions=_build_prompt(),
+        input_text=f"Competitive comparison JSON:\n{json.dumps(payload, indent=2)}",
     )
 
     try:
-        return _normalize_competitive_strategy(_extract_json(res.text), playload)
+        return _normalize_competitive_strategy(result, payload)
     except ValueError:
-        retry_res = await asyncio.to_thread(
-            client.models.generate_content,
-            model=settings.GEMINI_MODEL,
-            contents=_build_prompt(playload, retry=True),
+        retry_result = await generate_structured_json(
+            schema_name="competitive_strategy_retry",
+            schema=COMPETITIVE_STRATEGY_SCHEMA,
+            instructions=_build_prompt(retry=True),
+            input_text=(
+                "Competitive comparison JSON:\n"
+                f"{json.dumps(payload, indent=2)}"
+            ),
         )
-        return _normalize_competitive_strategy(
-            _extract_json(retry_res.text),
-            playload,
-        )
+        return _normalize_competitive_strategy(retry_result, payload)

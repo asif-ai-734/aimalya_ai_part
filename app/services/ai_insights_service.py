@@ -1,31 +1,154 @@
 #app.services.ai_insights_service.py
 
-import asyncio
-from app.core.config import get_settings
-from app.db.cache import make_cache_key, get_cached_response, set_cached_response
-from google import genai
 import json
 import re
 
+from app.core.config import get_settings
+from app.db.cache import make_cache_key, get_cached_response, set_cached_response
+from app.services.openai_analysis_client import generate_structured_json
+
+
 settings = get_settings()
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
-PROMPT_VERSION = "ai_insights_v3"
-PROGRAM_RECOMMENDATIONS_PROMPT_VERSION = "ai_insight_program_recommendations_v3"
+PROMPT_VERSION = "ai_insights_openai_v1"
+PROGRAM_RECOMMENDATIONS_PROMPT_VERSION = "ai_insight_program_recommendations_openai_v1"
 PROGRAM_RECOMMENDATION_TITLES = (
     "Staff_training",
     "Operation Consulting",
     "Performance Programs",
 )
 
+AI_INSIGHTS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "business_health_score": {"type": "number"},
+        "quick_insights": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "what_customers_love": {"type": "string"},
+                "what_customers_dislike": {"type": "string"},
+                "emerging_opportunities": {"type": "string"},
+            },
+            "required": [
+                "what_customers_love",
+                "what_customers_dislike",
+                "emerging_opportunities",
+            ],
+        },
+        "emerging_trends": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "trend": {"type": "string"},
+                    "mentions": {"type": "number"},
+                },
+                "required": ["trend", "mentions"],
+            },
+        },
+        "declining_areas": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "trend": {"type": "string"},
+                    "mentions": {"type": "number"},
+                },
+                "required": ["trend", "mentions"],
+            },
+        },
+        "actionable_recommendations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {"type": "string"},
+                    "priority": {
+                        "type": "string",
+                        "enum": ["High", "Medium", "Low"],
+                    },
+                    "description": {"type": "string"},
+                    "evidence": {"type": "string"},
+                    "business_impact": {"type": "string"},
+                    "expected_improvement": {"type": "string"},
+                    "actions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": [
+                    "title",
+                    "priority",
+                    "description",
+                    "evidence",
+                    "business_impact",
+                    "expected_improvement",
+                    "actions",
+                ],
+            },
+        },
+    },
+    "required": [
+        "business_health_score",
+        "quick_insights",
+        "emerging_trends",
+        "declining_areas",
+        "actionable_recommendations",
+    ],
+}
 
-def extract_json(text: str):
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise ValueError("No JSON in Gemini response")
-    return json.loads(match.group())
+PROGRAM_RECOMMENDATIONS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "actionable_recommendations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "enum": [
+                            "Staff_training",
+                            "Operation Consulting",
+                            "Performance Programs",
+                        ],
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["High", "Medium", "Low"],
+                    },
+                    "description": {"type": "string"},
+                    "evidence": {"type": "string"},
+                    "business_impact": {"type": "string"},
+                    "improvement": {"type": "string"},
+                    "actions_to_do": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": [
+                    "title",
+                    "priority",
+                    "description",
+                    "evidence",
+                    "business_impact",
+                    "improvement",
+                    "actions_to_do",
+                ],
+            },
+        },
+    },
+    "required": ["actionable_recommendations"],
+}
 
 
-def _build_prompt(summary: dict, retry: bool = False) -> str:
+def _build_prompt(retry: bool = False) -> str:
     retry_instruction = ""
     if retry:
         retry_instruction = """
@@ -35,9 +158,10 @@ declining_areas are non-empty arrays.
 """
 
     return f"""
-You are a senior business consultant.
+You are a senior business consultant for local service businesses.
 
-Analyze the following business summary and provide insights and recommendations.
+Analyze the supplied business summary JSON and produce decision-ready insights.
+Return data that matches the schema exactly.
 
 Rules:
 - Be concise, executive-friendly
@@ -54,51 +178,16 @@ Rules:
 - description explains the recommendation in plain business language
 - evidence must be a short metric/reference string, for example:
   "23 mentions in last 30 days (+15% vs previous month) | Reference: customer reviews mentioning slow service"
+- Use only the supplied summary data. If a trend must be inferred, base it on
+  the nearest available metrics, strengths, issues, goals, or category scores.
+- Do not invent competitor names, exact counts, percentages, or ratings that
+  are not supported by the summary.
 
 {retry_instruction}
-Return STRICT JSON ONLY:
-
-{{
-  "business_health_score": number,
-  "quick_insights": {{
-    "what_customers_love": "string",
-    "what_customers_dislike": "string",
-    "emerging_opportunities": "string"
-  }},
-  "emerging_trends": [
-    {{
-      "trend": "string",
-      "mentions": number
-    }}
-  ],
-  "declining_areas": [
-    {{
-      "trend": "string",
-      "mentions": number
-    }}
-  ],
-  "actionable_recommendations": [
-    {{
-      "title": "string",
-      "priority": "High|Medium|Low",
-      "description": "string",
-      "evidence": "string",
-      "business_impact": "string",
-      "expected_improvement": "string",
-      "actions": ["string"]
-    }}
-  ]
-}}
-
-Business summary:
-{json.dumps(summary, indent=2)}
 """
 
 
-def _build_program_recommendations_prompt(
-    summary: dict,
-    retry: bool = False,
-) -> str:
+def _build_program_recommendations_prompt(retry: bool = False) -> str:
     retry_instruction = ""
     if retry:
         retry_instruction = """
@@ -110,9 +199,9 @@ Return the same JSON shape again, but make sure:
 """
 
     return f"""
-You are a senior business consultant.
+You are a senior business consultant for local service businesses.
 
-Analyze the following business summary and create exactly three actionable
+Analyze the supplied business summary JSON and create exactly three actionable
 recommendations. The recommendation titles must be exactly these values and in
 this order:
 1. Staff_training
@@ -133,45 +222,16 @@ Rules:
   "+8 points service score"
 - Do not use placeholder text such as "No issue found"
 - Each actions_to_do list must contain concrete operational actions
+- Use only the supplied summary data. If you infer an opportunity, tie it to the
+  nearest available metric, review signal, goal, or category score.
+- Do not invent exact counts, scores, percentages, ratings, or competitor names.
 
 {retry_instruction}
-Return STRICT JSON ONLY:
-
-{{
-  "actionable_recommendations": [
-    {{
-      "title": "Staff_training",
-      "priority": "High|Medium|Low",
-      "description": "string",
-      "evidence": "string",
-      "business_impact": "string",
-      "improvement": "string",
-      "actions_to_do": ["string"]
-    }},
-    {{
-      "title": "Operation Consulting",
-      "priority": "High|Medium|Low",
-      "description": "string",
-      "evidence": "string",
-      "business_impact": "string",
-      "improvement": "string",
-      "actions_to_do": ["string"]
-    }},
-    {{
-      "title": "Performance Programs",
-      "priority": "High|Medium|Low",
-      "description": "string",
-      "evidence": "string",
-      "business_impact": "string",
-      "improvement": "string",
-      "actions_to_do": ["string"]
-    }}
-  ]
-}}
-
-Business summary:
-{json.dumps(summary, indent=2)}
 """
+
+
+def _business_summary_input(summary: dict) -> str:
+    return f"Business summary JSON:\n{json.dumps(summary, indent=2)}"
 
 
 def _has_required_ai_sections(result: dict) -> bool:
@@ -257,7 +317,7 @@ def _normalize_program_recommendations(result: dict) -> dict:
         or []
     )
     if not isinstance(raw_recommendations, list):
-        raise ValueError("Gemini response recommendations must be a list.")
+        raise ValueError("OpenAI response recommendations must be a list.")
 
     recommendations_by_title = {
         _title_key(item.get("title")): item
@@ -269,7 +329,7 @@ def _normalize_program_recommendations(result: dict) -> dict:
     for title in PROGRAM_RECOMMENDATION_TITLES:
         item = recommendations_by_title.get(_title_key(title))
         if not item:
-            raise ValueError(f"Gemini response missing recommendation: {title}.")
+            raise ValueError(f"OpenAI response missing recommendation: {title}.")
 
         recommendation = {
             "title": title,
@@ -307,7 +367,7 @@ def _normalize_program_recommendations(result: dict) -> dict:
             or not recommendation["actions_to_do"]
         ):
             raise ValueError(
-                "Gemini response missing required recommendation fields."
+                "OpenAI response missing required recommendation fields."
             )
 
         normalized.append(recommendation)
@@ -315,18 +375,10 @@ def _normalize_program_recommendations(result: dict) -> dict:
     return {"actionable_recommendations": normalized}
 
 
-async def _generate(prompt: str):
-    return await asyncio.to_thread(
-        client.models.generate_content,
-        model=settings.GEMINI_MODEL,
-        contents=prompt,
-    )
-
-
 async def generate_ai_insights(summary: dict) -> dict:
     cache_key = make_cache_key(
         "ai_insights",
-        settings.GEMINI_MODEL,
+        settings.OPENAI_MODEL,
         PROMPT_VERSION,
         summary,
     )
@@ -334,16 +386,24 @@ async def generate_ai_insights(summary: dict) -> dict:
     if cached:
         return cached
 
-    response = await _generate(_build_prompt(summary))
-    result = extract_json(response.text)
+    result = await generate_structured_json(
+        schema_name="ai_insights",
+        schema=AI_INSIGHTS_SCHEMA,
+        instructions=_build_prompt(),
+        input_text=_business_summary_input(summary),
+    )
 
     if not _has_required_ai_sections(result):
-        response = await _generate(_build_prompt(summary, retry=True))
-        result = extract_json(response.text)
+        result = await generate_structured_json(
+            schema_name="ai_insights_retry",
+            schema=AI_INSIGHTS_SCHEMA,
+            instructions=_build_prompt(retry=True),
+            input_text=_business_summary_input(summary),
+        )
 
     if not _has_required_ai_sections(result):
         raise ValueError(
-            "Gemini response missing required emerging_trends or declining_areas."
+            "OpenAI response missing required emerging_trends or declining_areas."
         )
 
     result = _normalize_trend_sections(result)
@@ -352,7 +412,7 @@ async def generate_ai_insights(summary: dict) -> dict:
         cache_key,
         result,
         "ai_insights",
-        settings.GEMINI_MODEL,
+        settings.OPENAI_MODEL,
         PROMPT_VERSION,
     )
     return result
@@ -361,7 +421,7 @@ async def generate_ai_insights(summary: dict) -> dict:
 async def generate_program_recommendations(summary: dict) -> dict:
     cache_key = make_cache_key(
         "ai_insight_program_recommendations",
-        settings.GEMINI_MODEL,
+        settings.OPENAI_MODEL,
         PROGRAM_RECOMMENDATIONS_PROMPT_VERSION,
         summary,
     )
@@ -369,20 +429,30 @@ async def generate_program_recommendations(summary: dict) -> dict:
     if cached:
         return cached
 
-    response = await _generate(_build_program_recommendations_prompt(summary))
     try:
-        result = _normalize_program_recommendations(extract_json(response.text))
-    except ValueError:
-        response = await _generate(
-            _build_program_recommendations_prompt(summary, retry=True)
+        result = _normalize_program_recommendations(
+            await generate_structured_json(
+                schema_name="program_recommendations",
+                schema=PROGRAM_RECOMMENDATIONS_SCHEMA,
+                instructions=_build_program_recommendations_prompt(),
+                input_text=_business_summary_input(summary),
+            )
         )
-        result = _normalize_program_recommendations(extract_json(response.text))
+    except ValueError:
+        result = _normalize_program_recommendations(
+            await generate_structured_json(
+                schema_name="program_recommendations_retry",
+                schema=PROGRAM_RECOMMENDATIONS_SCHEMA,
+                instructions=_build_program_recommendations_prompt(retry=True),
+                input_text=_business_summary_input(summary),
+            )
+        )
 
     await set_cached_response(
         cache_key,
         result,
         "ai_insight_program_recommendations",
-        settings.GEMINI_MODEL,
+        settings.OPENAI_MODEL,
         PROGRAM_RECOMMENDATIONS_PROMPT_VERSION,
     )
     return result

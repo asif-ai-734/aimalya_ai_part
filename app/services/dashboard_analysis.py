@@ -2,16 +2,16 @@
 
 import asyncio
 from collections import Counter
-from app.services.gemini_client import analyze_review_with_gemini
+from app.services.openai_analysis_client import analyze_review_with_openai
 
 
-GEMINI_REVIEW_CONCURRENCY = 5
+OPENAI_REVIEW_CONCURRENCY = 5
 NO_ISSUE_FALLBACK = "No Issue found"
 
 
 async def _analyze_review(review: dict, semaphore: asyncio.Semaphore) -> dict:
     async with semaphore:
-        return await analyze_review_with_gemini(review.get("text", ""))
+        return await analyze_review_with_openai(review.get("text", ""))
 
 
 def _review_rating(review: dict) -> float | None:
@@ -44,7 +44,7 @@ async def analyze_reviews(reviews: list):
     sentiment_count = {"Positive": 0, "Neutral": 0, "Negative": 0}
     strengths = Counter()
     issues = Counter()
-    semaphore = asyncio.Semaphore(GEMINI_REVIEW_CONCURRENCY)
+    semaphore = asyncio.Semaphore(OPENAI_REVIEW_CONCURRENCY)
     analyzed_reviews = await asyncio.gather(
         *(_analyze_review(review, semaphore) for review in reviews)
     )
