@@ -83,21 +83,12 @@ def _normalize_text(value: Any) -> str:
     return " ".join(str(value or "").strip().casefold().split())
 
 
-def _weighted_rating(ratings: list[tuple[float | None, int]]) -> float:
-    valid = [(rating, reviews) for rating, reviews in ratings if rating is not None]
+def _average_rating(ratings: list[float | None]) -> float:
+    valid = [rating for rating in ratings if rating is not None]
     if not valid:
         return 0.0
 
-    weighted = [(rating, reviews) for rating, reviews in valid if reviews > 0]
-    if weighted:
-        review_total = sum(reviews for _, reviews in weighted)
-        if review_total:
-            return round(
-                sum(rating * reviews for rating, reviews in weighted) / review_total,
-                1,
-            )
-
-    return round(sum(rating for rating, _ in valid) / len(valid), 1)
+    return round(sum(valid) / len(valid), 1)
 
 
 def _rating_stars(rating: float | None) -> dict:
@@ -470,13 +461,13 @@ async def _build_business_groups(
         ):
             group["updated_at"] = location["updated_at"]
         group["locations"].append(location)
-        group["_ratings"].append((location.get("rating"), location.get("reviews", 0)))
+        group["_ratings"].append(location.get("rating"))
 
     businesses = []
     for group in grouped.values():
         group_locations = group["locations"]
         reviews = sum(location.get("reviews", 0) for location in group_locations)
-        rating = _weighted_rating(group["_ratings"])
+        rating = _average_rating(group["_ratings"])
         recent_reviews = sorted(
             [
                 review
@@ -567,9 +558,7 @@ async def build_business_management(
         photo_url_builder=photo_url_builder,
     )
     total_reviews = sum(location.get("reviews", 0) for location in locations)
-    avg_rating = _weighted_rating(
-        [(location.get("rating"), location.get("reviews", 0)) for location in locations]
-    )
+    avg_rating = _average_rating([location.get("rating") for location in locations])
 
     return {
         "total_business": len(businesses),
@@ -589,6 +578,7 @@ async def build_business_management(
                 "primary_photo": business.get("primary_photo"),
                 "location_count": business.get("location_count"),
                 "reviews": business.get("reviews"),
+                "average_rating": business.get("rating"),
                 "ratings": business.get("rating"),
                 "account_status": business.get("account_status"),
                 "is_suspended": business.get("account_status") == "suspended",
@@ -663,10 +653,14 @@ async def build_business_management_detail(
         return {
             "business_name": business.get("business_name"),
             "owner_id": business.get("owner_id"),
+            "average_rating": business.get("rating"),
+            "rating_stars": business.get("rating_stars"),
             "recent_activity": recent_activity,
             "overview": {
                 "business_owner_name": business.get("owner_name"),
                 "category": business.get("category"),
+                "average_rating": business.get("rating"),
+                "rating_stars": business.get("rating_stars"),
                 "phone": business.get("phone"),
                 "phone_no": business.get("phone_no"),
                 "website": business.get("website"),
@@ -683,6 +677,8 @@ async def build_business_management_detail(
         return {
             "business_name": business.get("business_name"),
             "owner_id": business.get("owner_id"),
+            "average_rating": business.get("rating"),
+            "rating_stars": business.get("rating_stars"),
             "locations": [
                 {
                     "business_name": location.get("business_name"),
@@ -704,6 +700,8 @@ async def build_business_management_detail(
         return {
             "business_name": business.get("business_name"),
             "owner_id": business.get("owner_id"),
+            "average_rating": business.get("rating"),
+            "rating_stars": business.get("rating_stars"),
             "analytics": _sentiment_analytics(business.get("locations", [])),
         }
 

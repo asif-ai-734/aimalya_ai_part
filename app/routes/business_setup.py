@@ -17,6 +17,23 @@ from app.utils.counting_route import CountingRoute
 router = APIRouter(prefix="/businesses", tags=["Business Setup"], route_class=CountingRoute)
 
 
+def _normalize_location_name(value: str | None) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def _location_name_from_business(business: dict) -> str | None:
+    raw_input = business.get("raw_input") or {}
+    raw_location = raw_input.get("location") or {}
+    place_payload = business.get("place_payload") or {}
+
+    return (
+        business.get("input_address")
+        or raw_location.get("address_or_city")
+        or business.get("business_address")
+        or place_payload.get("formatted_address")
+    )
+
+
 @router.post("/fetch")
 async def fetch_business_data(payload: BusinessSetupRequest):
     try:
@@ -57,6 +74,31 @@ async def list_business_names(user_id: str):
     return {
         "user_id": user_id,
         "business_names": names
+    }
+
+
+@router.get("/location-names")
+async def list_location_names(user_id: str):
+    businesses = await get_user_businesses(user_id)
+
+    location_names = []
+    seen_locations = set()
+    for business in businesses:
+        location_name = _location_name_from_business(business)
+        place_id = business.get("place_id")
+        location_key = place_id or _normalize_location_name(location_name)
+
+        if location_key and location_key in seen_locations:
+            continue
+        if location_key:
+            seen_locations.add(location_key)
+
+        if location_name:
+            location_names.append(location_name)
+
+    return {
+        "total_location": len(location_names),
+        "location_name": location_names,
     }
 
 
