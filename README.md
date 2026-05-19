@@ -52,7 +52,12 @@ Compose filename such as `docker-compose.yml`.
 - `GET /businesses/location-names?user_id=user_123`
 - `GET /businesses/management`
 - `PATCH /businesses/management`
+- `GET /businesses/management/rating-drop?user_id=user_123&business_name=XYZ%20Food%20Corner&location=Uttara%2C%20Dhaka&report_frequency=weekly`
 - `GET /businesses/management/detail?business_name=XYZ%20Food%20Corner&overlook=overview`
+
+`/businesses/management/rating-drop` compares the current Google Places aggregate
+rating with a previously saved aggregate rating snapshot. It returns `null` for
+`previous_ratings` when no weekly/monthly historical snapshot exists.
 
 Example business setup request:
 

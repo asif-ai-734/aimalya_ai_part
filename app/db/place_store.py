@@ -69,6 +69,41 @@ def _init_place_db_sync() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS place_rating_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                place_id TEXT NOT NULL,
+                rating REAL,
+                user_ratings_total INTEGER,
+                recorded_at TEXT NOT NULL,
+                FOREIGN KEY(place_id) REFERENCES places(place_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_place_rating_snapshots_place_recorded
+            ON place_rating_snapshots(place_id, recorded_at)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO place_rating_snapshots (
+                place_id, rating, user_ratings_total, recorded_at
+            )
+            SELECT p.place_id, p.rating, p.user_ratings_total, p.updated_at
+            FROM places p
+            WHERE p.updated_at IS NOT NULL
+              AND (p.rating IS NOT NULL OR p.user_ratings_total IS NOT NULL)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM place_rating_snapshots s
+                  WHERE s.place_id = p.place_id
+                    AND s.recorded_at = p.updated_at
+              )
+            """
+        )
 
 
 async def init_place_db() -> None:
@@ -86,6 +121,27 @@ def _make_review_hash(place_id: str, review: dict) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _record_place_rating_snapshot(
+    conn,
+    *,
+    place_id: str,
+    rating: float | int | None,
+    user_ratings_total: int | None,
+    recorded_at: str,
+) -> None:
+    if rating is None and user_ratings_total is None:
+        return
+
+    conn.execute(
+        """
+        INSERT INTO place_rating_snapshots (
+            place_id, rating, user_ratings_total, recorded_at
+        ) VALUES (?, ?, ?, ?)
+        """,
+        (place_id, rating, user_ratings_total, recorded_at),
+    )
+
+
 def _upsert_place_data_sync(place: dict) -> None:
     _init_place_db_sync()
     place_id = place.get("place_id")
@@ -99,6 +155,7 @@ def _upsert_place_data_sync(place: dict) -> None:
     sw = viewport.get("southwest", {})
 
     opening_hours = place.get("opening_hours", {})
+    now = datetime.utcnow().isoformat()
 
     with connect() as conn:
         conn.execute(
@@ -140,8 +197,15 @@ def _upsert_place_data_sync(place: dict) -> None:
                 _to_int(place.get("takeout")),
                 _to_int(place.get("dine_in")),
                 _to_int(place.get("delivery")),
-                datetime.utcnow().isoformat(),
+                now,
             ),
+        )
+        _record_place_rating_snapshot(
+            conn,
+            place_id=place_id,
+            rating=place.get("rating"),
+            user_ratings_total=place.get("user_ratings_total"),
+            recorded_at=now,
         )
 
         for photo in place.get("photos", []):
@@ -184,6 +248,130 @@ def _upsert_place_data_sync(place: dict) -> None:
 
 async def upsert_place_data(place: dict) -> None:
     await asyncio.to_thread(_upsert_place_data_sync, place)
+
+
+def _row_to_rating_snapshot(row) -> dict:
+    return {
+        "id": row["id"],
+        "place_id": row["place_id"],
+        "rating": row["rating"],
+        "user_ratings_total": row["user_ratings_total"],
+        "recorded_at": row["recorded_at"],
+    }
+
+
+def _save_place_rating_snapshot_sync(
+    *,
+    place_id: str,
+    rating: float | int | None,
+    user_ratings_total: int | None = None,
+    recorded_at: datetime | str | None = None,
+) -> dict | None:
+    _init_place_db_sync()
+    recorded_at_text = (
+        recorded_at.isoformat()
+        if isinstance(recorded_at, datetime)
+        else recorded_at
+        or datetime.utcnow().isoformat()
+    )
+
+    with connect() as conn:
+        _record_place_rating_snapshot(
+            conn,
+            place_id=place_id,
+            rating=rating,
+            user_ratings_total=user_ratings_total,
+            recorded_at=recorded_at_text,
+        )
+        row = conn.execute(
+            """
+            SELECT *
+            FROM place_rating_snapshots
+            WHERE place_id = ? AND recorded_at = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (place_id, recorded_at_text),
+        ).fetchone()
+
+    return _row_to_rating_snapshot(row) if row else None
+
+
+async def save_place_rating_snapshot(
+    *,
+    place_id: str,
+    rating: float | int | None,
+    user_ratings_total: int | None = None,
+    recorded_at: datetime | str | None = None,
+) -> dict | None:
+    return await asyncio.to_thread(
+        _save_place_rating_snapshot_sync,
+        place_id=place_id,
+        rating=rating,
+        user_ratings_total=user_ratings_total,
+        recorded_at=recorded_at,
+    )
+
+
+def _get_latest_place_rating_snapshot_sync(place_id: str) -> dict | None:
+    _init_place_db_sync()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM place_rating_snapshots
+            WHERE place_id = ?
+            ORDER BY recorded_at DESC, id DESC
+            LIMIT 1
+            """,
+            (place_id,),
+        ).fetchone()
+
+    return _row_to_rating_snapshot(row) if row else None
+
+
+async def get_latest_place_rating_snapshot(place_id: str) -> dict | None:
+    return await asyncio.to_thread(_get_latest_place_rating_snapshot_sync, place_id)
+
+
+def _get_place_rating_snapshot_at_or_before_sync(
+    *,
+    place_id: str,
+    recorded_at: datetime | str,
+) -> dict | None:
+    _init_place_db_sync()
+    recorded_at_text = (
+        recorded_at.isoformat()
+        if isinstance(recorded_at, datetime)
+        else str(recorded_at)
+    )
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM place_rating_snapshots
+            WHERE place_id = ?
+              AND recorded_at <= ?
+            ORDER BY recorded_at DESC, id DESC
+            LIMIT 1
+            """,
+            (place_id, recorded_at_text),
+        ).fetchone()
+
+    return _row_to_rating_snapshot(row) if row else None
+
+
+async def get_place_rating_snapshot_at_or_before(
+    *,
+    place_id: str,
+    recorded_at: datetime | str,
+) -> dict | None:
+    return await asyncio.to_thread(
+        _get_place_rating_snapshot_at_or_before_sync,
+        place_id=place_id,
+        recorded_at=recorded_at,
+    )
 
 
 def _get_place_data_sync(place_id: str | None = None) -> dict | None:

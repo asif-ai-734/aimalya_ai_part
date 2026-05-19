@@ -1,3 +1,4 @@
+from datetime import datetime
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
@@ -7,6 +8,16 @@ from app.services.business_management_service import (
     build_business_management_detail,
     build_business_categories,
     update_business_management_account_status,
+)
+from app.db.place_store import (
+    get_place_rating_snapshot_at_or_before,
+    upsert_place_data,
+)
+from app.services.business_lookup import find_user_business
+from app.services.google_places_service import GooglePlacesError, fetch_place_details
+from app.services.rating_drop_service import (
+    build_rating_drop_report,
+    rating_snapshot_cutoff,
 )
 from app.schemas.business_management import BusinessAccountStatusRequest
 from app.utils.counting_route import CountingRoute
@@ -60,6 +71,62 @@ async def update_business_account_status(payload: BusinessAccountStatusRequest):
         )
 
     return result
+
+
+@router.get("/management/rating-drop")
+async def business_rating_drop(
+    user_id: str,
+    business_name: str,
+    location: str,
+    report_frequency: str,
+):
+    matched_business = await find_user_business(
+        user_id=user_id,
+        business_name=business_name,
+        address=location,
+    )
+
+    if not matched_business:
+        raise HTTPException(
+            status_code=404,
+            detail="Business not found for this user and location.",
+        )
+
+    try:
+        previous_cutoff = rating_snapshot_cutoff(report_frequency)
+        current_place = await fetch_place_details(matched_business["place_id"])
+        await upsert_place_data(current_place)
+        current_snapshot = {
+            "rating": current_place.get("rating"),
+            "user_ratings_total": current_place.get("user_ratings_total"),
+            "recorded_at": datetime.utcnow().isoformat(),
+        }
+        previous_snapshot = await get_place_rating_snapshot_at_or_before(
+            place_id=matched_business["place_id"],
+            recorded_at=previous_cutoff,
+        )
+        report = build_rating_drop_report(
+            current_snapshot=current_snapshot,
+            previous_snapshot=previous_snapshot,
+            report_frequency=report_frequency,
+            previous_cutoff=previous_cutoff,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GooglePlacesError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    return {
+        "user_id": user_id,
+        "business_name": matched_business.get("business_name") or business_name,
+        "location": (
+            matched_business.get("business_address")
+            or matched_business.get("input_address")
+            or location
+        ),
+        "place_id": matched_business.get("place_id"),
+        **report,
+    }
 
 
 @router.get("/management/details")
