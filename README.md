@@ -48,10 +48,13 @@ Compose filename such as `docker-compose.yml`.
 - `GET /reports/monthly`
 - `POST /businesses/fetch`
 - `GET /businesses?user_id=user_123`
+- `DELETE /businesses?user_id=user_123&business_name=XYZ%20Food%20Corner`
+- `DELETE /businesses?user_id=user_123&business_name=XYZ%20Food%20Corner&location=Uttara%2C%20Dhaka`
 - `GET /businesses/user/user_123`
+- `DELETE /businesses/user/user_123`
 - `GET /businesses/location-names?user_id=user_123`
 - `GET /businesses/management`
-- `PATCH /businesses/management`
+- `PATCH /businesses/management` with `{"user_id":"user_123","business_name":"XYZ Food Corner","action":"suspend"}`
 - `GET /businesses/management/rating-drop?user_id=user_123&business_name=XYZ%20Food%20Corner&location=Uttara%2C%20Dhaka&report_frequency=weekly`
 - `GET /businesses/management/detail?business_name=XYZ%20Food%20Corner&overlook=overview`
 

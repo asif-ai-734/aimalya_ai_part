@@ -198,6 +198,112 @@ async def get_user_businesses(user_id: str) -> list[dict]:
     return await asyncio.to_thread(_get_user_businesses_sync, user_id)
 
 
+def _delete_user_business_sync(
+    *,
+    user_id: str,
+    business_name: str,
+    location: str | None,
+) -> dict | None:
+    _init_user_business_db_sync()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM user_businesses
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+        matched_businesses = []
+        for row in rows:
+            business = _row_to_business(row)
+            if business_matches(
+                business,
+                business_name=business_name,
+                address=location,
+            ):
+                matched_businesses.append(business)
+
+        if not matched_businesses:
+            return None
+
+        matched_ids = [business["id"] for business in matched_businesses]
+        context_ids = {
+            business.get("context_id")
+            for business in matched_businesses
+            if business.get("context_id") is not None
+        }
+        placeholders = ",".join("?" for _ in matched_ids)
+
+        conn.execute(
+            f"""
+            DELETE FROM user_businesses
+            WHERE user_id = ?
+              AND id IN ({placeholders})
+            """,
+            [user_id, *matched_ids],
+        )
+
+        deleted_context_count = 0
+        for context_id in context_ids:
+            remaining = conn.execute(
+                """
+                SELECT 1
+                FROM user_businesses
+                WHERE user_id = ?
+                  AND context_id = ?
+                LIMIT 1
+                """,
+                (user_id, context_id),
+            ).fetchone()
+
+            if remaining:
+                continue
+
+            deleted_context_count += conn.execute(
+                """
+                DELETE FROM business_contexts
+                WHERE id = ?
+                  AND user_id = ?
+                """,
+                (context_id, user_id),
+            ).rowcount
+
+    return {
+        "user_id": user_id,
+        "business_name": business_name,
+        "location": location,
+        "deleted_count": len(matched_businesses),
+        "deleted_context_count": deleted_context_count,
+        "deleted_businesses": [
+            {
+                "business_name": business.get("business_name"),
+                "location": business.get("business_address")
+                or business.get("input_address"),
+                "place_id": business.get("place_id"),
+            }
+            for business in matched_businesses
+        ],
+    }
+
+
+async def delete_user_business(
+    *,
+    user_id: str,
+    business_name: str,
+    location: str | None = None,
+) -> dict | None:
+    return await asyncio.to_thread(
+        _delete_user_business_sync,
+        user_id=user_id,
+        business_name=business_name,
+        location=location,
+    )
+
+
 def _get_all_user_businesses_sync() -> list[dict]:
     _init_user_business_db_sync()
     with connect() as conn:
@@ -222,6 +328,7 @@ def _normalize_business_name(value: str | None) -> str:
 
 def _update_business_account_status_sync(
     *,
+    user_id: str,
     business_name: str,
     account_status: str,
 ) -> dict | None:
@@ -234,8 +341,10 @@ def _update_business_account_status_sync(
             """
             SELECT *
             FROM user_businesses
+            WHERE user_id = ?
             ORDER BY updated_at DESC, id DESC
-            """
+            """,
+            (user_id,),
         ).fetchall()
         matched_ids = [
             row["id"]
@@ -269,6 +378,7 @@ def _update_business_account_status_sync(
 
     updated_businesses = [_row_to_business(row) for row in updated_rows]
     return {
+        "user_id": user_id,
         "business_name": updated_businesses[0].get("business_name"),
         "account_status": account_status,
         "is_suspended": account_status == "suspended",
@@ -279,11 +389,13 @@ def _update_business_account_status_sync(
 
 async def update_business_account_status(
     *,
+    user_id: str,
     business_name: str,
     account_status: str,
 ) -> dict | None:
     return await asyncio.to_thread(
         _update_business_account_status_sync,
+        user_id=user_id,
         business_name=business_name,
         account_status=account_status,
     )

@@ -710,6 +710,7 @@ async def build_business_management_detail(
 
 async def update_business_management_account_status(
     *,
+    user_id: str,
     business_name: str,
     action: str,
 ) -> dict | None:
@@ -722,6 +723,7 @@ async def update_business_management_account_status(
         raise ValueError("action must be one of: suspend, unsuspend.")
 
     result = await update_business_account_status(
+        user_id=user_id,
         business_name=business_name,
         account_status=account_status,
     )
@@ -729,6 +731,7 @@ async def update_business_management_account_status(
         return None
 
     return {
+        "user_id": result.get("user_id"),
         "business_name": result.get("business_name"),
         "action": normalized_action,
         "account_status": result.get("account_status"),

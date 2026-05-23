@@ -1,7 +1,8 @@
 # pyrefly: ignore [missing-import]
 from fastapi import APIRouter, HTTPException
 
-from app.db.business_store import get_user_businesses
+from app.db.business_store import delete_user_business, get_user_businesses
+from app.db.user_data_store import delete_user_data
 from app.schemas.business_setup import (
     AddBusinessLocationRequest,
     BusinessSetupRequest,
@@ -56,10 +57,45 @@ async def list_businesses(user_id: str):
     return {"user_id": user_id, "businesses": businesses}
 
 
+@router.delete("")
+async def delete_business_for_user(
+    user_id: str,
+    business_name: str,
+    location: str | None = None,
+):
+    result = await delete_user_business(
+        user_id=user_id,
+        business_name=business_name,
+        location=location,
+    )
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Business not found for this user.",
+        )
+
+    return result
+
+
 @router.get("/user/{user_id}")
 async def list_businesses_for_user(user_id: str):
     businesses = await get_user_businesses(user_id)
     return {"user_id": user_id, "businesses": businesses}
+
+
+@router.delete("/user/{user_id}")
+async def delete_businesses_for_user(user_id: str):
+    result = await delete_user_data(user_id)
+
+    if result["deleted_count"] == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="No data found for this user.",
+        )
+
+    return result
+
 
 @router.get("/names")
 async def list_business_names(user_id: str):

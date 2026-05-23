@@ -58,6 +58,7 @@ async def business_management(
 async def update_business_account_status(payload: BusinessAccountStatusRequest):
     try:
         result = await update_business_management_account_status(
+            user_id=payload.user_id,
             business_name=payload.business_name,
             action=payload.action,
         )
@@ -67,7 +68,7 @@ async def update_business_account_status(payload: BusinessAccountStatusRequest):
     if not result:
         raise HTTPException(
             status_code=404,
-            detail="Business not found.",
+            detail="Business not found for this user.",
         )
 
     return result
